@@ -7,6 +7,7 @@ import {
   maskEmail,
   maskNationalId,
   matchesEmployeeIdentity,
+  normalizeEgyptianPhone,
   validatePasswordPolicy,
 } from "../../api/_lib/registrationCore.js";
 
@@ -34,6 +35,47 @@ test("phase 22g employee identity requires strict same-record matching", () => {
       employeeCode: "1234",
       phone: "01000000000",
     }),
+    false
+  );
+});
+
+test("phase 22g.1 accepts equivalent Egyptian phone formats on the same employee", () => {
+  assert.equal(normalizeEgyptianPhone("+20 101 234 5678"), "01012345678");
+  assert.equal(normalizeEgyptianPhone("1012345678"), "01012345678");
+  assert.equal(
+    matchesEmployeeIdentity(
+      { ...employee, phone: "+20 101 234 5678" },
+      {
+        nationalId: "29101010101010",
+        employeeCode: "1234",
+        phone: "01012345678",
+      }
+    ),
+    true
+  );
+});
+
+test("phase 22g.1 can match a registered alternate phone without cross-record OR matching", () => {
+  assert.equal(
+    matchesEmployeeIdentity(
+      { ...employee, phone: "", phone2: "01012345678" },
+      {
+        nationalId: "29101010101010",
+        employeeCode: "1234",
+        phone: "01012345678",
+      }
+    ),
+    true
+  );
+  assert.equal(
+    matchesEmployeeIdentity(
+      { ...employee, phone: "", phone2: "01012345678" },
+      {
+        nationalId: "29101010101010",
+        employeeCode: "9999",
+        phone: "01012345678",
+      }
+    ),
     false
   );
 });

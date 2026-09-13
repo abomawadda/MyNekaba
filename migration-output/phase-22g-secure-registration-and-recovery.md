@@ -62,7 +62,7 @@ The following remain Firebase Console / Vercel configuration responsibilities:
   - `FIREBASE_PROJECT_ID`
   - `FIREBASE_CLIENT_EMAIL`
   - `FIREBASE_PRIVATE_KEY`
-  - `JIT_ALLOWED_ORIGINS`
+  - `JIT_AUTH_ALLOWED_ORIGINS`
 - Optional hardening: enable App Check enforcement after live acceptance.
 
 ## Validation
@@ -85,4 +85,3 @@ These warnings are not introduced by Phase 22G and do not block the secure regis
 - No mass writes were performed.
 - No Firestore rules were deployed.
 - No financial data or financial behavior was changed.
-

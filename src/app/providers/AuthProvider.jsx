@@ -572,6 +572,48 @@ export function AuthProvider({ children }) {
         throw new Error(invalidCredentialsMessage);
       }
 
+      if (account.accountStatus && account.accountStatus !== "active") {
+        if (account.accountStatus === ACCOUNT_STATUS_PENDING) {
+          throw new Error("الحساب قيد المراجعة. سيتم تفعيله بواسطة الإدارة بعد تحديد الصلاحية.");
+        }
+        throw new Error("الحساب غير مفعل أو موقوف حاليا.");
+      }
+
+      if (account.firebaseUid && account.email && !account.passwordHash) {
+        try {
+          const fb = await firebaseSignIn(account.email, password);
+          if (fb.uid !== account.firebaseUid) {
+            await logAuditEvent("auth.firebase_uid_mismatch", {
+              userId: account.id,
+              accountFirebaseUid: account.firebaseUid,
+              firebaseUid: fb.uid,
+              riskLevel: "high",
+            });
+            throw new Error(invalidCredentialsMessage);
+          }
+          clearFailedAttempts(normalizedIdentifier);
+          const nextUser = buildUserFromAccount(account);
+          const nextSession = await persistAuthenticatedUser(nextUser);
+          await logAuditEvent("auth.firebase_native_login", {
+            userId: nextUser.id,
+            sessionId: nextSession.sessionId,
+            page: "/login",
+            riskLevel: "low",
+          });
+          await syncSessionIntegrity(nextUser, nextSession);
+          return nextUser;
+        } catch (error) {
+          const attempt = recordFailedAttempt(normalizedIdentifier);
+          await logAuditEvent("auth.login_failed", {
+            identifier: normalizedIdentifier,
+            userId: account.id,
+            failedAttempts: attempt.count,
+            riskLevel: attempt.lockedUntil ? "high" : "medium",
+          });
+          throw new Error(error?.message || invalidCredentialsMessage);
+        }
+      }
+
       if (!account.passwordHash) {
         throw new Error(invalidCredentialsMessage);
       }

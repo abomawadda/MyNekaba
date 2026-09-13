@@ -18,6 +18,33 @@ export function normalizeDigits(value = "") {
     .replace(/\D/g, "");
 }
 
+export function normalizeEgyptianPhone(value = "") {
+  const digits = normalizeDigits(value);
+  if (!digits) return "";
+  if (digits.length === 12 && digits.startsWith("20")) return `0${digits.slice(2)}`;
+  if (digits.length === 13 && digits.startsWith("020")) return `0${digits.slice(3)}`;
+  if (digits.length === 10 && digits.startsWith("1")) return `0${digits}`;
+  return digits;
+}
+
+function firstValue(source = {}, keys = []) {
+  for (const key of keys) {
+    const value = source[key];
+    if (value !== undefined && value !== null && String(value).trim()) return value;
+  }
+  return "";
+}
+
+function collectValues(source = {}, keys = [], normalizer = normalizeText) {
+  return Array.from(
+    new Set(
+      keys
+        .map((key) => normalizer(source[key]))
+        .filter(Boolean)
+    )
+  );
+}
+
 export function normalizeText(value = "") {
   return String(value ?? "").trim();
 }
@@ -44,11 +71,17 @@ export function maskEmail(value = "") {
 }
 
 export function employeeKeys(employee = {}) {
+  const phoneValues = collectValues(
+    employee,
+    ["phone", "mobile", "phone1", "phone2", "mobileNumber", "whatsapp", "telephone"],
+    normalizeEgyptianPhone
+  );
   return {
-    nationalId: normalizeDigits(employee.nationalId || employee.nationalID),
-    employeeCode: normalizeDigits(employee.employeeCode || employee.jobId),
+    nationalId: normalizeDigits(firstValue(employee, ["nationalId", "nationalID", "nid", "nationalNumber"])),
+    employeeCode: normalizeDigits(firstValue(employee, ["employeeCode", "jobId", "jobCode", "employeeNumber", "code"])),
     employeeId: normalizeText(employee.id),
-    phone: normalizeDigits(employee.phone || employee.mobile),
+    phone: phoneValues[0] || "",
+    phones: phoneValues,
     email: normalizeEmail(employee.email),
   };
 }
@@ -61,7 +94,7 @@ export function matchesEmployeeIdentity(employee = {}, identity = {}) {
       keys.phone &&
       keys.nationalId === normalizeDigits(identity.nationalId) &&
       keys.employeeCode === normalizeDigits(identity.employeeCode || identity.jobCode) &&
-      keys.phone === normalizeDigits(identity.phone)
+      keys.phones.includes(normalizeEgyptianPhone(identity.phone))
   );
 }
 
