@@ -1,5 +1,6 @@
-// تحذير: لا تنشر هذه القواعد قبل اكتمال ربط كل الحسابات بـ Firebase Auth
-// (حقل firebaseUid) — النشر المبكر يوقف التطبيق لأنه يعمل حالياً بدون مصادقة Firebase.
+// تحذير: لا تنشر هذه القواعد قبل اكتمال ربط الحسابات بمصادقة Firebase.
+// القواعد تفترض وجود user_accounts/{accountId}، حيث accountId يأتي من custom claim
+// أو يساوي request.auth.uid في المشاريع التي تستخدم UID كمعرف الحساب.
 // النشر لاحقاً عبر: firebase deploy --only firestore:rules,storage
 rules_version = '2';
 service cloud.firestore {
@@ -9,16 +10,27 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function accountId() {
+      return isSignedIn() && request.auth.token.accountId != null
+        ? request.auth.token.accountId
+        : request.auth.uid;
+    }
+
+    function hasAccountDoc() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/user_accounts/$(accountId()));
+    }
+
     function accountDoc() {
-      return get(/databases/$(database)/documents/user_accounts/$(request.auth.uid)).data;
+      return get(/databases/$(database)/documents/user_accounts/$(accountId())).data;
     }
 
     function myRole() {
-      return isSignedIn() ? accountDoc().role : 'none';
+      return hasAccountDoc() ? accountDoc().role : 'none';
     }
 
     function isActive() {
-      return isSignedIn() && accountDoc().accountStatus == 'active';
+      return hasAccountDoc() && accountDoc().accountStatus == 'active';
     }
 
     function isAdmin() {
@@ -37,19 +49,59 @@ service cloud.firestore {
       return isActive() && (myRole() in ['admin', 'treasurer', 'dataEntry', 'auditor']);
     }
 
+    function isMember() {
+      return isActive() && myRole() == 'member';
+    }
+
+    function currentUserEmployeeId() {
+      return isActive() && accountDoc().employeeId is string ? accountDoc().employeeId : '';
+    }
+
+    function currentUserEmployeeCode() {
+      return isActive() && accountDoc().employeeCode is string ? accountDoc().employeeCode : '';
+    }
+
+    function ownsEmployeeRecord(employeeDocId) {
+      return isMember()
+        && (
+          employeeDocId == currentUserEmployeeId()
+          || (currentUserEmployeeCode() != '' && resource.data.jobId == currentUserEmployeeCode())
+          || (currentUserEmployeeCode() != '' && resource.data.employeeCode == currentUserEmployeeCode())
+        );
+    }
+
+    function ownsMemberRecord() {
+      return isMember()
+        && (
+          resource.data.memberId == currentUserEmployeeId()
+          || (currentUserEmployeeCode() != '' && resource.data.memberId == currentUserEmployeeCode())
+        );
+    }
+
     match /user_accounts/{uid} {
-      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+      allow read: if isAdmin() || (isSignedIn() && accountId() == uid);
       allow create: if isAdmin();
-      allow update: if isAdmin() || (isSignedIn() && request.auth.uid == uid
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'accountStatus', 'permissionOverrides']));
+      allow update: if isAdmin() || (isSignedIn() && accountId() == uid
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'role',
+          'accountStatus',
+          'permissionOverrides',
+          'employeeId',
+          'employeeCode',
+          'jobId',
+          'nationalId',
+          'phone',
+          'email',
+          'firebaseUid'
+        ]));
       allow delete: if isAdmin();
     }
 
     match /auth_sessions/{sid} {
-      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == accountId());
       allow create: if isSignedIn();
-      allow update: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
-      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow update: if isAdmin() || (isSignedIn() && resource.data.userId == accountId());
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == accountId());
     }
 
     match /audit_logs/{id} {
@@ -59,7 +111,7 @@ service cloud.firestore {
     }
 
     match /employees/{id} {
-      allow read: if isStaff();
+      allow read: if isStaff() || ownsEmployeeRecord(id);
       allow create, update: if isAdmin() || myRole() == 'dataEntry' || isTreasurer();
       allow delete: if isAdmin();
     }
@@ -71,7 +123,7 @@ service cloud.firestore {
     }
 
     match /member_benefits/{id} {
-      allow read: if isStaff();
+      allow read: if isStaff() || ownsMemberRecord();
       allow create, update: if isStaff();
       allow delete: if isAdmin() || isTreasurer();
     }
@@ -98,13 +150,13 @@ service cloud.firestore {
     }
 
     match /events/{id} {
-      allow read: if isStaff();
+      allow read: if isStaff() || isMember();
       allow create, update: if isAdmin() || isTreasurer();
       allow delete: if isAdmin();
     }
 
     match /event_bookings/{id} {
-      allow read: if isStaff();
+      allow read: if isStaff() || ownsMemberRecord();
       allow create, update: if isStaff();
       allow delete: if isAdmin() || isTreasurer();
     }

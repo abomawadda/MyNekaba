@@ -31,6 +31,7 @@ import {
 } from "../../security/permissions";
 import { validatePasswordPolicy } from "../../security/passwordPolicy";
 import { firebaseSignIn, firebaseSignOut, firebaseSignUp } from "../../security/firebaseAuth";
+import { establishJitFirebaseSession, JIT_SESSION_STATE } from "../../security/jitSessionBridge";
 import {
   getAccountIdentityMigrationState,
   getAuthModeForAccount,
@@ -61,6 +62,7 @@ import {
 const ACCOUNTS_COLLECTION = "user_accounts";
 const SESSIONS_COLLECTION = "auth_sessions";
 const ACCOUNT_STATUS_PENDING = "pending_approval";
+const LEGACY_FIREBASE_EMAIL_FALLBACK_ENABLED = false;
 
 const FALLBACK_ADMIN = {
   id: "system-admin",
@@ -164,6 +166,7 @@ function buildUserFromAccount(account = {}) {
     id: account.id,
     accountId: account.id,
     employeeId: account.employeeId || "",
+    employeeCode: account.employeeCode || account.jobId || "",
     fullName: account.fullName || account.displayName || "مستخدم النظام",
     displayName: account.fullName || account.displayName || "مستخدم النظام",
     phone: account.phone || "",
@@ -188,6 +191,7 @@ function buildQuickEmployeeUser(employee = {}) {
   return {
     id: employee.id,
     employeeId: employee.jobId || employee.id,
+    employeeCode: employee.jobId || employee.employeeCode || "",
     fullName: employee.name || "عضو",
     displayName: employee.name || "عضو",
     phone: employee.phone || "",
@@ -597,7 +601,39 @@ export function AuthProvider({ children }) {
 
       clearFailedAttempts(normalizedIdentifier);
 
-      if (account.firebaseUid && account.email) {
+      if (account.firebaseUid) {
+        try {
+          const fb = await establishJitFirebaseSession({
+            identifier: normalizedIdentifier,
+            password,
+            expectedAccountId: account.id,
+            expectedFirebaseUid: account.firebaseUid,
+          });
+          const migrationState = getAccountIdentityMigrationState(account, fb.uid);
+          if (migrationState === IDENTITY_MIGRATION_STATE.mismatch) {
+            await logAuditEvent("auth.firebase_uid_mismatch", {
+              userId: account.id,
+              accountFirebaseUid: account.firebaseUid,
+              firebaseUid: fb.uid,
+              riskLevel: "high",
+            });
+          } else if (fb.state === JIT_SESSION_STATE.linked) {
+            await logAuditEvent("auth.firebase_jit_session", {
+              userId: account.id,
+              riskLevel: "low",
+              page: "/login",
+            });
+          }
+        } catch (error) {
+          await logAuditEvent("auth.firebase_jit_session_failed", {
+            userId: account.id,
+            riskLevel: "medium",
+            reason: error?.message || "jit_session_failed",
+          });
+        }
+      }
+
+      if (LEGACY_FIREBASE_EMAIL_FALLBACK_ENABLED && account.firebaseUid && account.email) {
         try {
           const fb = await firebaseSignIn(account.email, password);
           const migrationState = getAccountIdentityMigrationState(account, fb.uid);
@@ -612,7 +648,7 @@ export function AuthProvider({ children }) {
         } catch {
           // Firebase best-effort — user_accounts يظل المرجع الأساسي
         }
-      } else if (account.email && password) {
+      } else if (LEGACY_FIREBASE_EMAIL_FALLBACK_ENABLED && account.email && password) {
         try {
           const fb = await firebaseSignUp(account.email, password);
           const migrationState = getAccountIdentityMigrationState(account, fb.uid);

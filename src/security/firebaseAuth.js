@@ -1,5 +1,7 @@
 import {
   createUserWithEmailAndPassword,
+  getIdTokenResult,
+  signInWithCustomToken,
   signInWithEmailAndPassword,
   signOut,
 } from "firebase/auth";
@@ -40,6 +42,20 @@ export async function firebaseSignUp(email, password) {
   try {
     const credential = await createUserWithEmailAndPassword(auth, String(email).trim(), password);
     return { uid: credential.user.uid, email: credential.user.email || "" };
+  } catch (error) {
+    throw new Error(translateFirebaseError(error));
+  }
+}
+
+export async function firebaseSignInWithCustomToken(customToken) {
+  try {
+    const credential = await signInWithCustomToken(auth, customToken);
+    const tokenResult = await getIdTokenResult(credential.user, true);
+    return {
+      uid: credential.user.uid,
+      email: credential.user.email || "",
+      claims: tokenResult.claims || {},
+    };
   } catch (error) {
     throw new Error(translateFirebaseError(error));
   }

@@ -1,12 +1,11 @@
-﻿/* eslint-disable no-irregular-whitespace */
 /**
- * EventsMaster â€” ظ„ظˆط­ط© طھط­ظƒظ… ظˆط¥ط¯ط§ط±ط© ط§ظ„ظپط¹ط§ظ„ظٹط§طھ ظˆط§ظ„ط£ظ†ط´ط·ط© (ط§ظ„ظ†ط³ط®ط© ط§ظ„ظ…ط¯ظ…ط¬ط© ط§ظ„ظ†ظ‡ط§ط¦ظٹط©)
+ * EventsMaster — لوحة تحكم وإدارة الفعاليات والأنشطة (النسخة المدمجة النهائية)
  *
- * âœ… ط­ظ„ ط¬ط°ط±ظٹ ظ„ظ…ط´ظƒظ„ط© Array.isArray ظ„ظ„ظ…ط´ط±ظپظٹظ† (طھظˆط§ظپظ‚ ظ…ط¹ ط§ظ„ط¨ظٹط§ظ†ط§طھ ط§ظ„ظ‚ط¯ظٹظ…ط©).
- * âœ… ظ‚ظپظ„ ط§ظ„طھظˆط§ط±ظٹط® ط؛ظٹط± ط§ظ„ظ…ظ†ط·ظ‚ظٹط© (ظ„ط§ ظٹظ…ظƒظ† ط§ظ„ط؛ظ„ظ‚ ط¨ط¹ط¯ ط§ظ„ظپط¹ط§ظ„ظٹط©طŒ ظˆظ„ط§ ط§ظ„ط¨ط¯ط، ط¨ط¹ط¯ ط§ظ„ط؛ظ„ظ‚).
- * âœ… ط·ط¨ط§ط¹ط© طھظ‚ط§ط±ظٹط± ظ…ط§ظ„ظٹط© ظˆطھظپطµظٹظ„ظٹط© ط§ط­طھط±ط§ظپظٹط©.
- * âœ… طھط³ط¹ظٹط± ظ…ط²ط¯ظˆط¬ (ط³ط¹ط± ط§ظ„ط¹ط¶ظˆ / ط³ط¹ط± ط§ظ„ظ…ط±ط§ظپظ‚).
- * âœ… طھظ†ط¨ظٹظ‡ط§طھ ط°ظƒظٹط© ظ„ظ„ظپط¹ط§ظ„ظٹط§طھ ط§ظ„ظ‚ط±ظٹط¨ط© ظˆط§ظ„ط­ط¬ظˆط²ط§طھ ط§ظ„ظ…ط¹ظ„ظ‚ط©.
+ * ✅ حل جذري لمشكلة Array.isArray للمشرفين (توافق مع البيانات القديمة).
+ * ✅ قفل التواريخ غير المنطقية (لا يمكن الغلق بعد الفعالية، ولا البدء بعد الغلق).
+ * ✅ طباعة تقارير مالية وتفصيلية احترافية.
+ * ✅ تسعير مزدوج (سعر العضو / سعر المرافق).
+ * ✅ تنبيهات ذكية للفعاليات القريبة والحجوزات المعلقة.
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from "react";
@@ -30,8 +29,8 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 
-const DEVICE_EVENT_TYPE = "ط¹ط±ط¶ ط£ط¬ظ‡ط²ط© ظˆظ…ظˆط¨ط§ظٹظ„";
-const EVENT_TYPES = [DEVICE_EVENT_TYPE, "ط±ط­ظ„ط© طھط±ظپظٹظ‡ظٹط©", "ط±ط­ظ„ط© طھط«ظ‚ظٹظپظٹط©", "ط­ظپظ„ ط¥ظپط·ط§ط±", "ظ…ط³ط§ط¨ظ‚ط© ط«ظ‚ط§ظپظٹط©", "ظ…ط¤طھظ…ط±/ظ†ط¯ظˆط©", "ظ†ط´ط§ط· ط±ظٹط§ط¶ظٹ", "ط§ط­طھظپط§ظ„ظٹط©", "ط£ط®ط±ظ‰"];
+const DEVICE_EVENT_TYPE = "عرض أجهزة وموبايل";
+const EVENT_TYPES = [DEVICE_EVENT_TYPE, "رحلة ترفيهية", "رحلة تثقيفية", "حفل إفطار", "مسابقة ثقافية", "مؤتمر/ندوة", "نشاط رياضي", "احتفالية", "أخرى"];
 const getTodayISO = () => new Date().toISOString().split("T")[0];
 
 const INITIAL_FORM = {
@@ -43,17 +42,17 @@ const INITIAL_FORM = {
   devicePrice: "", installmentMonths: "", installmentStart: "", downPayment: "0", interestFree: true
 };
 
-// â”€â”€ ط£ط¯ظˆط§طھ ظ…ط³ط§ط¹ط¯ط© â”€â”€
+// ── أدوات مساعدة ──
 const getEventStatus = (event) => {
   const today = getTodayISO();
-  if (event.date < today) return { label: "ظ…ظ†طھظ‡ظٹط©", color: "slate", bg: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400" };
+  if (event.date < today) return { label: "منتهية", color: "slate", bg: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400" };
   const booked = Number(event.bookedCount || 0);
   const cap = Number(event.capacity || 1);
-  if (booked >= cap) return { label: "ط§ظƒطھظ…ظ„طھ", color: "rose", bg: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400" };
+  if (booked >= cap) return { label: "اكتملت", color: "rose", bg: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400" };
   if (today >= event.bookingStart && today <= event.bookingEnd)
-    return { label: "ط§ظ„ط­ط¬ط² ظ…ظپطھظˆط­", color: "emerald", bg: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" };
-  if (today < event.bookingStart) return { label: "ظ‚ط±ظٹط¨ط§ظ‹", color: "amber", bg: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" };
-  return { label: "ط§ظ„ط­ط¬ط² ظ…ط؛ظ„ظ‚", color: "orange", bg: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" };
+    return { label: "الحجز مفتوح", color: "emerald", bg: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" };
+  if (today < event.bookingStart) return { label: "قريباً", color: "amber", bg: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" };
+  return { label: "الحجز مغلق", color: "orange", bg: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" };
 };
 
 const getEventStatusTone = (status) => {
@@ -68,14 +67,14 @@ const calcDaysLeft = (dateStr) => {
   return Math.ceil(ms / (1000 * 60 * 60 * 24));
 };
 
-// â”€â”€ ط·ط¨ط§ط¹ط© ط§ظ„طھظ‚ط±ظٹط± ط§ظ„ظ…ط§ظ„ظٹ ط§ظ„ط´ط§ظ…ظ„ â”€â”€
+// ── طباعة التقرير المالي الشامل ──
 const printFinancialReport = (events, bookingsMap) => {
   const win = openPrintWindow("events-financial-report", "width=1200,height=900");
   if (!win) return;
   const today = new Date().toLocaleDateString("ar-EG", { dateStyle: "full" });
   const eventDates = events.map((event) => event?.date).filter(Boolean).sort((a, b) => a.localeCompare(b));
   const periodMeta = eventDates.length > 0
-    ? `ط§ظ„ظپطھط±ط©: ${eventDates[0]} ط¥ظ„ظ‰ ${eventDates[eventDates.length - 1]}`
+    ? `الفترة: ${eventDates[0]} إلى ${eventDates[eventDates.length - 1]}`
     : "";
   let totalRevenue = 0, totalBookings = 0, totalPax = 0;
 
@@ -92,11 +91,11 @@ const printFinancialReport = (events, bookingsMap) => {
         <td style="text-align:center">${pax}</td><td style="text-align:center">${bks.length}</td>
         <td style="text-align:center">${occ}%</td>
         <td style="text-align:center; font-weight:900; color:${rev > 0 ? '#059669' : '#64748b'}">${formatMoney(rev)}</td>
-        <td style="text-align:center">${ev.isFree ? "ظ…ط¬ط§ظ†ظٹ" : `${Number(ev.memberPrice || 0)} / ${Number(ev.companionPrice || 0)} / ط¯ط¹ظ… ${Number(ev.memberSupportValue || 0)}`}</td>
+        <td style="text-align:center">${ev.isFree ? "مجاني" : `${Number(ev.memberPrice || 0)} / ${Number(ev.companionPrice || 0)} / دعم ${Number(ev.memberSupportValue || 0)}`}</td>
       </tr>`;
   }).join("");
 
-  win.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>ط§ظ„طھظ‚ط±ظٹط± ط§ظ„ظ…ط§ظ„ظٹ ط§ظ„ط´ط§ظ…ظ„</title>
+  win.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>التقرير المالي الشامل</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap');
     @page{size:A4 landscape;margin:10mm}
@@ -119,21 +118,21 @@ const printFinancialReport = (events, bookingsMap) => {
     }
     ${getPrintBrandStyles()}
   </style></head><body>
-  ${getPrintBrandHeader({ reportTitle: 'ط§ظ„طھظ‚ط±ظٹط± ط§ظ„ظ…ط§ظ„ظٹ ط§ظ„ط´ط§ظ…ظ„ ظ„ظ„ظپط¹ط§ظ„ظٹط§طھ', reportMeta: [periodMeta, `طھط§ط±ظٹط® ط§ظ„ط¥طµط¯ط§ط±: ${today}`].filter(Boolean).join(' | ') })}
+  ${getPrintBrandHeader({ reportTitle: 'التقرير المالي الشامل للفعاليات', reportMeta: [periodMeta, `تاريخ الإصدار: ${today}`].filter(Boolean).join(' | ') })}
   <div class="kpis">
-    <div class="kpi"><div class="val">${events.length}</div><div>ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ظپط¹ط§ظ„ظٹط§طھ</div></div>
-    <div class="kpi"><div class="val">${totalBookings.toLocaleString()}</div><div>ط­ط¬ظˆط²ط§طھ ظ…ط¤ظƒط¯ط©</div></div>
-    <div class="kpi"><div class="val">${totalPax.toLocaleString()}</div><div>ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط£ظپط±ط§ط¯</div></div>
-    <div class="kpi"><div class="val" style="color:#059669">${formatMoney(totalRevenue)}</div><div>ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط¥ظٹط±ط§ط¯ط§طھ</div></div>
+    <div class="kpi"><div class="val">${events.length}</div><div>إجمالي الفعاليات</div></div>
+    <div class="kpi"><div class="val">${totalBookings.toLocaleString()}</div><div>حجوزات مؤكدة</div></div>
+    <div class="kpi"><div class="val">${totalPax.toLocaleString()}</div><div>إجمالي الأفراد</div></div>
+    <div class="kpi"><div class="val" style="color:#059669">${formatMoney(totalRevenue)}</div><div>إجمالي الإيرادات</div></div>
   </div>
-  <table><thead><tr><th>ط§ظ„ظپط¹ط§ظ„ظٹط©</th><th>ط§ظ„ظ†ظˆط¹</th><th>ط§ظ„طھط§ط±ظٹط®</th><th>ط§ظ„ط³ط¹ط©</th><th>ط§ظ„ط£ظپط±ط§ط¯</th><th>ط§ظ„ط­ط¬ظˆط²ط§طھ</th><th>ط§ظ„ط¥ط´ط؛ط§ظ„</th><th>ط§ظ„ط¥ظٹط±ط§ط¯</th><th>ط³ط¹ط± ط§ظ„ط¹ط¶ظˆ/ط§ظ„ظ…ط±ط§ظپظ‚/ط§ظ„ط¯ط¹ظ…</th></tr></thead>
-  <tbody>${rows}</tbody><tfoot><tr><td colspan="4" style="text-align:center">ط§ظ„ط¥ط¬ظ…ط§ظ„ظٹط§طھ</td><td style="text-align:center">${totalPax.toLocaleString()}</td><td style="text-align:center">${totalBookings.toLocaleString()}</td><td style="text-align:center">â€”</td><td style="text-align:center; color:#059669">${formatMoney(totalRevenue)}</td><td>â€”</td></tr></tfoot></table>
-  <div style="display:flex; justify-content:space-between; font-weight:bold;"><span>طھظ‚ط±ظٹط± ط¢ظ„ظٹ</span><span>طھظˆظ‚ظٹط¹ ط§ظ„ظ…ط³ط¤ظˆظ„: ................................</span></div>
+  <table><thead><tr><th>الفعالية</th><th>النوع</th><th>التاريخ</th><th>السعة</th><th>الأفراد</th><th>الحجوزات</th><th>الإشغال</th><th>الإيراد</th><th>سعر العضو/المرافق/الدعم</th></tr></thead>
+  <tbody>${rows}</tbody><tfoot><tr><td colspan="4" style="text-align:center">الإجماليات</td><td style="text-align:center">${totalPax.toLocaleString()}</td><td style="text-align:center">${totalBookings.toLocaleString()}</td><td style="text-align:center">—</td><td style="text-align:center; color:#059669">${formatMoney(totalRevenue)}</td><td>—</td></tr></tfoot></table>
+  <div style="display:flex; justify-content:space-between; font-weight:bold;"><span>تقرير آلي</span><span>توقيع المسؤول: ................................</span></div>
   <script>window.onload=()=>setTimeout(()=>window.print(),500);</script></body></html>`);
   win.document.close();
 };
 
-// â”€â”€ ط·ط¨ط§ط¹ط© ظƒط´ظپ طھظپطµظٹظ„ظٹ ظ„ظپط¹ط§ظ„ظٹط© â”€â”€
+// ── طباعة كشف تفصيلي لفعالية ──
 const printEventDetail = (event, bookings) => {
   const win = openPrintWindow("event-detail-report", "width=1000,height=800");
   if (!win) return;
@@ -144,9 +143,9 @@ const printEventDetail = (event, bookings) => {
   const totalRev = confirmed.reduce((s, b) => s + Number(b.totalCost || 0), 0);
   const totalPax = confirmed.reduce((s, b) => s + Number(b.totalPax || 1), 0);
 
-  const rows = confirmed.map((b, i) => `<tr><td style="text-align:center">${i + 1}</td><td><strong>${b.memberName}</strong><br><small>ظƒظˆط¯: ${b.memberId} | ${b.memberPhone || "â€”"}</small>${b.companionsList?.length ? `<div style="font-size:10px;color:#6366f1;margin-top:3px">${b.companionsList.map(c => `آ· ${c.name} (${c.relation})`).join(" ")}</div>` : ""}</td><td style="text-align:center">${b.totalPax}</td><td style="text-align:center; color:#059669; font-weight:900">${formatMoney(b.totalCost)}</td><td style="text-align:center; font-size:10px">${b.paymentSummary || "ظ…ط¬ط§ظ†ظٹ"}</td><td style="text-align:center"></td></tr>`).join("");
+  const rows = confirmed.map((b, i) => `<tr><td style="text-align:center">${i + 1}</td><td><strong>${b.memberName}</strong><br><small>كود: ${b.memberId} | ${b.memberPhone || "—"}</small>${b.companionsList?.length ? `<div style="font-size:10px;color:#6366f1;margin-top:3px">${b.companionsList.map(c => `· ${c.name} (${c.relation})`).join(" ")}</div>` : ""}</td><td style="text-align:center">${b.totalPax}</td><td style="text-align:center; color:#059669; font-weight:900">${formatMoney(b.totalCost)}</td><td style="text-align:center; font-size:10px">${b.paymentSummary || "مجاني"}</td><td style="text-align:center"></td></tr>`).join("");
 
-  win.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>ظƒط´ظپ ط§ظ„ظپط¹ط§ظ„ظٹط©: ${event.title}</title><style>@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap');@page{size:A4 landscape;margin:10mm}*{font-family:'Cairo',sans-serif;box-sizing:border-box;margin:0;padding:0;}html,body{width:100%;height:auto;}body{padding:16px;font-size:12px;}.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:15px 0;}.m{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px;text-align:center;}.m .v{font-size:18px;font-weight:900;color:#4f46e5;}.m .l{font-size:9px;color:#64748b;font-weight:700;}table{width:100%;border-collapse:collapse;page-break-inside:auto;break-inside:auto;}th{background:#1e293b;color:#fff;padding:9px;text-align:center;}td{padding:8px;border:1px solid #e2e8f0;vertical-align:top;}@media print{body{padding:0}.meta,.m,.brand-header{break-inside:avoid;page-break-inside:avoid}thead{display:table-header-group}tfoot{display:table-footer-group}tr,td,th{break-inside:avoid;page-break-inside:avoid}}${getPrintBrandStyles()}</style></head><body>${getPrintBrandHeader({ reportTitle: `ظƒط´ظپ ظپط¹ط§ظ„ظٹط©: ${event.title}`, reportMeta: `${event.type} | ط§ظ„طھط§ط±ظٹط®: ${event.date} | ${event.location || ""}` })}<div class="meta"><div class="m"><div class="v">${totalPax}</div><div class="l">ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط£ظپط±ط§ط¯</div></div><div class="m"><div class="v">${confirmed.length}</div><div class="l">ط­ط¬ظˆط²ط§طھ ظ…ط¤ظƒط¯ط©</div></div><div class="m"><div class="v">${pending.length}</div><div class="l">ط­ط¬ظˆط²ط§طھ ظ…ط¹ظ„ظ‚ط©</div></div><div class="m"><div class="v" style="color:#059669">${formatMoney(totalRev)}</div><div class="l">ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط¥ظٹط±ط§ط¯</div></div></div><table><thead><tr><th>#</th><th>ط§ظ„ظ…ط´طھط±ظƒ ظˆط§ظ„ظ…ط±ط§ظپظ‚ظٹظ†</th><th>ط§ظ„ط£ظپط±ط§ط¯</th><th>ط§ظ„طھظƒظ„ظپط©</th><th>ط§ظ„ط¯ظپط¹</th><th>طھظˆظ‚ظٹط¹ ط­ط¶ظˆط±</th></tr></thead><tbody>${rows || `<tr><td colspan="6" style="text-align:center;padding:20px;color:#94a3b8">ظ„ط§ طھظˆط¬ط¯ ط­ط¬ظˆط²ط§طھ ظ…ط¤ظƒط¯ط©</td></tr>`}</tbody></table>${cancelled.length > 0 ? `<p style="margin-top:15px;font-size:10px;color:#ef4444;font-weight:700">âڑ  ط§ظ„ظ…ظ„ط؛ظٹظˆظ† (${cancelled.length}): ${cancelled.map(b => b.memberName).join("طŒ ")}</p>` : ""}<div style="margin-top:25px;display:flex;justify-content:space-between;font-size:11px;color:#64748b;"><span>ظ…ط´ط±ظپ ط§ظ„ظپط¹ط§ظ„ظٹط©: ${Array.isArray(event.supervisors) ? event.supervisors.join("طŒ ") : (event.supervisors || "â€”")}</span><span>طھظˆظ‚ظٹط¹ ط§ظ„ظ…ط´ط±ظپ: .........................</span></div><script>window.onload=()=>setTimeout(()=>window.print(),600);</script></body></html>`);
+  win.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>كشف الفعالية: ${event.title}</title><style>@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap');@page{size:A4 landscape;margin:10mm}*{font-family:'Cairo',sans-serif;box-sizing:border-box;margin:0;padding:0;}html,body{width:100%;height:auto;}body{padding:16px;font-size:12px;}.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:15px 0;}.m{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px;text-align:center;}.m .v{font-size:18px;font-weight:900;color:#4f46e5;}.m .l{font-size:9px;color:#64748b;font-weight:700;}table{width:100%;border-collapse:collapse;page-break-inside:auto;break-inside:auto;}th{background:#1e293b;color:#fff;padding:9px;text-align:center;}td{padding:8px;border:1px solid #e2e8f0;vertical-align:top;}@media print{body{padding:0}.meta,.m,.brand-header{break-inside:avoid;page-break-inside:avoid}thead{display:table-header-group}tfoot{display:table-footer-group}tr,td,th{break-inside:avoid;page-break-inside:avoid}}${getPrintBrandStyles()}</style></head><body>${getPrintBrandHeader({ reportTitle: `كشف فعالية: ${event.title}`, reportMeta: `${event.type} | التاريخ: ${event.date} | ${event.location || ""}` })}<div class="meta"><div class="m"><div class="v">${totalPax}</div><div class="l">إجمالي الأفراد</div></div><div class="m"><div class="v">${confirmed.length}</div><div class="l">حجوزات مؤكدة</div></div><div class="m"><div class="v">${pending.length}</div><div class="l">حجوزات معلقة</div></div><div class="m"><div class="v" style="color:#059669">${formatMoney(totalRev)}</div><div class="l">إجمالي الإيراد</div></div></div><table><thead><tr><th>#</th><th>المشترك والمرافقين</th><th>الأفراد</th><th>التكلفة</th><th>الدفع</th><th>توقيع حضور</th></tr></thead><tbody>${rows || `<tr><td colspan="6" style="text-align:center;padding:20px;color:#94a3b8">لا توجد حجوزات مؤكدة</td></tr>`}</tbody></table>${cancelled.length > 0 ? `<p style="margin-top:15px;font-size:10px;color:#ef4444;font-weight:700">⚠ الملغيون (${cancelled.length}): ${cancelled.map(b => b.memberName).join("، ")}</p>` : ""}<div style="margin-top:25px;display:flex;justify-content:space-between;font-size:11px;color:#64748b;"><span>مشرف الفعالية: ${Array.isArray(event.supervisors) ? event.supervisors.join("، ") : (event.supervisors || "—")}</span><span>توقيع المشرف: .........................</span></div><script>window.onload=()=>setTimeout(()=>window.print(),600);</script></body></html>`);
   win.document.close();
 };
 
@@ -249,14 +248,14 @@ export default function EventsMaster() {
 
   const handleSaveEvent = async (e) => {
     e.preventDefault();
-    if (!formData.title?.trim() || !formData.date || !formData.capacity) return showToast("ط¨ط±ط¬ط§ط، ط¥ظƒظ…ط§ظ„ ط§ظ„ط¨ظٹط§ظ†ط§طھ ط§ظ„ط£ط³ط§ط³ظٹط©", "error");
-    if (formData.bookingStart > formData.bookingEnd) return showToast("طھط§ط±ظٹط® ط¨ط¯ط، ط§ظ„ط­ط¬ط² ظٹط¬ط¨ ط£ظ† ظٹط³ط¨ظ‚ ط£ظˆ ظٹط³ط§ظˆظٹ طھط§ط±ظٹط® ط§ظ„ط¥ط؛ظ„ط§ظ‚", "error");
-    if (formData.bookingEnd > formData.date) return showToast("ظ„ط§ ظٹظ…ظƒظ† ط£ظ† ظٹظƒظˆظ† ط؛ظ„ظ‚ ط§ظ„ط­ط¬ط² ط¨ط¹ط¯ طھط§ط±ظٹط® ط§ظ„ظپط¹ط§ظ„ظٹط© ظ†ظپط³ظ‡ط§!", "error");
+    if (!formData.title?.trim() || !formData.date || !formData.capacity) return showToast("برجاء إكمال البيانات الأساسية", "error");
+    if (formData.bookingStart > formData.bookingEnd) return showToast("تاريخ بدء الحجز يجب أن يسبق أو يساوي تاريخ الإغلاق", "error");
+    if (formData.bookingEnd > formData.date) return showToast("لا يمكن أن يكون غلق الحجز بعد تاريخ الفعالية نفسها!", "error");
     const isDeviceOffer = formData.type === DEVICE_EVENT_TYPE;
     if (isDeviceOffer && (!formData.deviceCategory?.trim() || !formData.deviceBrand?.trim() || !formData.deviceModel?.trim() || Number(formData.devicePrice) <= 0 || Number(formData.installmentMonths) < 1 || Number(formData.downPayment || 0) !== 0)) {
-      return showToast("ط£ظƒظ…ظ„ ط¨ظٹط§ظ†ط§طھ ط§ظ„ط¬ظ‡ط§ط² ظˆط§ظ„ط³ط¹ط± ظˆط¹ط¯ط¯ ط§ظ„ط£ط´ظ‡ط±. ط§ظ„ط¹ط±ط¶ ط¨ظ„ط§ ظپظˆط§ط¦ط¯ ط£ظˆ ظ…ظ‚ط¯ظ….", "error");
+      return showToast("أكمل بيانات الجهاز والسعر وعدد الأشهر. العرض بلا فوائد أو مقدم.", "error");
     }
-    if (!formData.isFree && (!formData.memberPrice || !formData.companionPrice)) return showToast("ط¨ط±ط¬ط§ط، طھط­ط¯ظٹط¯ ط£ط³ط¹ط§ط± ط§ظ„ط§ط´طھط±ط§ظƒ", "error");
+    if (!formData.isFree && (!formData.memberPrice || !formData.companionPrice)) return showToast("برجاء تحديد أسعار الاشتراك", "error");
 
     setSaving(true);
     try {
@@ -283,17 +282,17 @@ export default function EventsMaster() {
         supervisors: formData.supervisors || [], updatedAt: serverTimestamp()
       };
 
-      if (editId) { await updateDoc(doc(db, "events", editId), eventData); showToast("طھظ… طھط­ط¯ظٹط« ط§ظ„ظپط¹ط§ظ„ظٹط© ط¨ظ†ط¬ط§ط­"); }
-      else { await addDoc(collection(db, "events"), { ...eventData, bookedCount: 0, status: "open", createdAt: serverTimestamp() }); showToast("طھظ… طھط£ط³ظٹط³ ط§ظ„ظپط¹ط§ظ„ظٹط© ط¨ظ†ط¬ط§ط­"); }
+      if (editId) { await updateDoc(doc(db, "events", editId), eventData); showToast("تم تحديث الفعالية بنجاح"); }
+      else { await addDoc(collection(db, "events"), { ...eventData, bookedCount: 0, status: "open", createdAt: serverTimestamp() }); showToast("تم تأسيس الفعالية بنجاح"); }
       closeModal();
-    } catch { showToast("ط­ط¯ط« ط®ط·ط£ ط£ط«ظ†ط§ط، ط§ظ„ط­ظپط¸", "error"); } finally { setSaving(false); }
+    } catch { showToast("حدث خطأ أثناء الحفظ", "error"); } finally { setSaving(false); }
   };
 
   const handleDelete = async (ev) => {
     const bks = (bookingsMap[ev.id] || []).filter(b => b.status === "confirmed");
-    if (bks.length > 0) return showToast(`ظ„ط§ ظٹظ…ظƒظ† ط­ط°ظپ ط§ظ„ظپط¹ط§ظ„ظٹط© â€” ظٹظˆط¬ط¯ ${bks.length} ط­ط¬ط² ظ…ط¤ظƒط¯`, "error");
-    if (!window.confirm(`ظ‡ظ„ ط£ظ†طھ ظ…طھط£ظƒط¯ ظ…ظ† ط­ط°ظپ ظپط¹ط§ظ„ظٹط© "${ev.title}" ظ†ظ‡ط§ط¦ظٹط§ظ‹طں`)) return;
-    try { await deleteDoc(doc(db, "events", ev.id)); showToast("طھظ… ط­ط°ظپ ط§ظ„ظپط¹ط§ظ„ظٹط© ط¨ظ†ط¬ط§ط­"); } catch { showToast("ط®ط·ط£ ط£ط«ظ†ط§ط، ط§ظ„ط­ط°ظپ", "error"); }
+    if (bks.length > 0) return showToast(`لا يمكن حذف الفعالية — يوجد ${bks.length} حجز مؤكد`, "error");
+    if (!window.confirm(`هل أنت متأكد من حذف فعالية "${ev.title}" نهائياً؟`)) return;
+    try { await deleteDoc(doc(db, "events", ev.id)); showToast("تم حذف الفعالية بنجاح"); } catch { showToast("خطأ أثناء الحذف", "error"); }
   };
 
   const closeModal = () => { setIsModalOpen(false); setEditId(null); setFormData(INITIAL_FORM); };
@@ -316,7 +315,7 @@ export default function EventsMaster() {
   if (loading) {
     return (
       <div className="mx-auto max-w-7xl py-10" dir="rtl">
-        <LoadingState title="ط¬ط§ط±ظٹ طھط­ظ…ظٹظ„ ط¯ظ„ظٹظ„ ط§ظ„ظپط¹ط§ظ„ظٹط§طھ..." rows={5} />
+        <LoadingState title="جاري تحميل دليل الفعاليات..." rows={5} />
       </div>
     );
   }
@@ -324,13 +323,13 @@ export default function EventsMaster() {
   return (
     <div className={clsx("flex flex-col gap-5 max-w-7xl mx-auto pb-12", T.text)} dir="rtl">
       <PageHeader
-        title="ظ…ط³ط§ط­ط© طھط´ط؛ظٹظ„ ط§ظ„ظپط¹ط§ظ„ظٹط§طھ ظˆط§ظ„ط£ظ†ط´ط·ط©"
-        hint="ط¥ط¯ط§ط±ط© ط§ظ„ظپط¹ط§ظ„ظٹط§طھ ظˆط§ظ„ط³ط¹ط© ظˆط§ظ„ط­ط¬ظˆط²ط§طھ ظˆط§ظ„طھظ‚ط§ط±ظٹط± ط¯ظˆظ† ط®ظ„ط·ظ‡ط§ ظ…ط¹ ط§ط¬طھظ…ط§ط¹ط§طھ ظ…ط¬ظ„ط³ ط§ظ„ط¥ط¯ط§ط±ط©"
+        title="مساحة تشغيل الفعاليات والأنشطة"
+        hint="إدارة الفعاليات والسعة والحجوزات والتقارير دون خلطها مع اجتماعات مجلس الإدارة"
         icon={getModuleIcon("/activities/master")}
         actions={(
           <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" size="sm" iconStart={BarChart3} onClick={() => printFinancialReport(events, bookingsMap)}>ط§ظ„طھظ‚ط±ظٹط± ط§ظ„ظ…ط§ظ„ظٹ</Button>
-            <Button size="sm" iconStart={Plus} onClick={() => { closeModal(); setIsModalOpen(true); }}>ظپط¹ط§ظ„ظٹط© ط¬ط¯ظٹط¯ط©</Button>
+            <Button variant="secondary" size="sm" iconStart={BarChart3} onClick={() => printFinancialReport(events, bookingsMap)}>التقرير المالي</Button>
+            <Button size="sm" iconStart={Plus} onClick={() => { closeModal(); setIsModalOpen(true); }}>فعالية جديدة</Button>
           </div>
         )}
       />
@@ -346,42 +345,42 @@ export default function EventsMaster() {
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-l from-indigo-50 to-transparent dark:from-indigo-900/10">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-xl"><Tent size={18} className="text-indigo-600" /></div>
-                <div><h2 className="font-black text-sm text-indigo-700 dark:text-indigo-400">{editId ? "طھط¹ط¯ظٹظ„ ط§ظ„ظپط¹ط§ظ„ظٹط©" : "طھط£ط³ظٹط³ ظپط¹ط§ظ„ظٹط© ط¬ط¯ظٹط¯ط©"}</h2></div>
+                <div><h2 className="font-black text-sm text-indigo-700 dark:text-indigo-400">{editId ? "تعديل الفعالية" : "تأسيس فعالية جديدة"}</h2></div>
               </div>
               <button type="button" onClick={closeModal} className="p-2 hover:bg-rose-100 hover:text-rose-600 rounded-xl transition-colors"><X size={16} /></button>
             </div>
 
             <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto custom-scrollbar">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <FormField label="ط§ط³ظ… ط§ظ„ظپط¹ط§ظ„ظٹط©" required><input type="text" value={formData.title} onChange={e => setField("title", e.target.value)} placeholder="ظ…ط«ط§ظ„: ط±ط­ظ„ط© ط´ط±ظ… ط§ظ„ط´ظٹط®" className={clsx("w-full px-3 py-2.5 rounded-xl border text-xs font-bold outline-none focus:ring-2", T.inp)} /></FormField>
-                <FormField label="ظ†ظˆط¹ ط§ظ„ظ†ط´ط§ط·"><select value={formData.type} onChange={e => setField("type", e.target.value)} className={clsx("w-full px-3 py-2.5 rounded-xl border text-xs font-bold outline-none focus:ring-2", T.sel)}>{EVENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></FormField>
+                <FormField label="اسم الفعالية" required><input type="text" value={formData.title} onChange={e => setField("title", e.target.value)} placeholder="مثال: رحلة شرم الشيخ" className={clsx("w-full px-3 py-2.5 rounded-xl border text-xs font-bold outline-none focus:ring-2", T.inp)} /></FormField>
+                <FormField label="نوع النشاط"><select value={formData.type} onChange={e => setField("type", e.target.value)} className={clsx("w-full px-3 py-2.5 rounded-xl border text-xs font-bold outline-none focus:ring-2", T.sel)}>{EVENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></FormField>
               </div>
 
               <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
-                <p className="text-[10px] font-black text-slate-500 uppercase">ًں“… ط§ظ„طھظˆط§ط±ظٹط® ظˆط§ظ„ط¬ط¯ظˆظ„ ط§ظ„ط²ظ…ظ†ظٹ</p>
+                <p className="text-[10px] font-black text-slate-500 uppercase">📅 التواريخ والجدول الزمني</p>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <FormField label="طھط§ط±ظٹط® ط§ظ„ط§ظ†ط·ظ„ط§ظ‚" required><ArabicDatePicker label="" value={formData.date} minVal={getTodayISO()} onChange={v => setField("date", v)} /></FormField>
-                  <FormField label="ط¨ط¯ط، ط§ظ„ط­ط¬ط²"><ArabicDatePicker label="" value={formData.bookingStart} maxVal={formData.bookingEnd} onChange={v => setField("bookingStart", v)} /></FormField>
-                  <FormField label="ط¥ط؛ظ„ط§ظ‚ ط§ظ„ط­ط¬ط²"><ArabicDatePicker label="" value={formData.bookingEnd} minVal={formData.bookingStart} maxVal={formData.date} onChange={v => setField("bookingEnd", v)} /></FormField>
+                  <FormField label="تاريخ الانطلاق" required><ArabicDatePicker label="" value={formData.date} minVal={getTodayISO()} onChange={v => setField("date", v)} /></FormField>
+                  <FormField label="بدء الحجز"><ArabicDatePicker label="" value={formData.bookingStart} maxVal={formData.bookingEnd} onChange={v => setField("bookingStart", v)} /></FormField>
+                  <FormField label="إغلاق الحجز"><ArabicDatePicker label="" value={formData.bookingEnd} minVal={formData.bookingStart} maxVal={formData.date} onChange={v => setField("bookingEnd", v)} /></FormField>
                 </div>
               </div>
 
               <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl border border-indigo-100 dark:border-indigo-800 space-y-3">
-                <p className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase">ًں’° ط§ظ„ط³ط¹ط© ظˆط§ظ„طھط³ط¹ظٹط±</p>
+                <p className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase">💰 السعة والتسعير</p>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 items-end">
-                  <FormField label="ط§ظ„ط­ط¯ ط§ظ„ط£ظ‚طµظ‰ ظ„ظ„ط£ظپط±ط§ط¯" required><input type="number" min="1" value={formData.capacity} onChange={e => setField("capacity", e.target.value)} className={clsx("w-full px-3 py-2.5 rounded-xl border text-xs font-bold outline-none focus:ring-2", T.inp)} /></FormField>
+                  <FormField label="الحد الأقصى للأفراد" required><input type="number" min="1" value={formData.capacity} onChange={e => setField("capacity", e.target.value)} className={clsx("w-full px-3 py-2.5 rounded-xl border text-xs font-bold outline-none focus:ring-2", T.inp)} /></FormField>
                   <div className="flex items-center gap-2 pb-1">
                     <label className="flex items-center gap-2 cursor-pointer text-xs font-black select-none">
-                      <div onClick={() => setField("isFree", !formData.isFree)} className={clsx("w-10 h-5 rounded-full transition-colors relative cursor-pointer", formData.isFree ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-600")}><div className={clsx("absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all", formData.isFree ? "left-5" : "left-0.5")} /></div> ظ…ط¬ط§ظ†ظٹط©
+                      <div onClick={() => setField("isFree", !formData.isFree)} className={clsx("w-10 h-5 rounded-full transition-colors relative cursor-pointer", formData.isFree ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-600")}><div className={clsx("absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all", formData.isFree ? "left-5" : "left-0.5")} /></div> مجانية
                     </label>
                   </div>
                   {!formData.isFree && (
-                    <><FormField label="ط³ط¹ط± ط§ظ„ط¹ط¶ظˆ" required><input type="number" min="0" value={formData.memberPrice} onChange={e => setField("memberPrice", e.target.value)} className={clsx("w-full px-3 py-2.5 rounded-xl border text-xs font-black outline-none focus:ring-2 bg-white dark:bg-slate-900", T.inp)} /></FormField><FormField label="ط³ط¹ط± ط§ظ„ظ…ط±ط§ظپظ‚" required><input type="number" min="0" value={formData.companionPrice} onChange={e => setField("companionPrice", e.target.value)} className={clsx("w-full px-3 py-2.5 rounded-xl border text-xs font-black outline-none focus:ring-2 bg-white dark:bg-slate-900", T.inp)} /></FormField></>
+                    <><FormField label="سعر العضو" required><input type="number" min="0" value={formData.memberPrice} onChange={e => setField("memberPrice", e.target.value)} className={clsx("w-full px-3 py-2.5 rounded-xl border text-xs font-black outline-none focus:ring-2 bg-white dark:bg-slate-900", T.inp)} /></FormField><FormField label="سعر المرافق" required><input type="number" min="0" value={formData.companionPrice} onChange={e => setField("companionPrice", e.target.value)} className={clsx("w-full px-3 py-2.5 rounded-xl border text-xs font-black outline-none focus:ring-2 bg-white dark:bg-slate-900", T.inp)} /></FormField></>
                   )}
                 </div>
                 {!formData.isFree && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <FormField label="ظ‚ظٹظ…ط© ط§ظ„ط¯ط¹ظ… ط§ظ„ط®ط§طµ ط¨ط§ظ„ط¹ط¶ظˆ">
+                    <FormField label="قيمة الدعم الخاص بالعضو">
                       <input
                         type="number"
                         min="0"
@@ -391,9 +390,9 @@ export default function EventsMaster() {
                       />
                     </FormField>
                     <div className="rounded-2xl border border-indigo-200 dark:border-indigo-800 bg-white/80 dark:bg-slate-900/50 px-4 py-3">
-                      <p className="text-[10px] font-black text-slate-400">ظ‚ظٹظ…ط© ط§ظ„ط¯ط¹ظ… ط§ظ„ط®ط§طµ ط¨ط§ظ„ط¹ط¶ظˆ</p>
+                      <p className="text-[10px] font-black text-slate-400">قيمة الدعم الخاص بالعضو</p>
                       <p className="text-lg font-black text-emerald-600">{formatMoney(formData.memberSupportValue || 0)}</p>
-                      <p className="text-[10px] font-bold text-slate-500 mt-1">طھظڈط³ط¬ظ„ ظƒظ…ط²ظٹط© ط¹ط¶ظˆظٹط© ظ…ط³طھظ‚ظ„ط© ط¹ظ† ط¨ط¯ظ„ط§طھ ط§ظ„ظ…ط¬ظ„ط³.</p>
+                      <p className="text-[10px] font-bold text-slate-500 mt-1">تُسجل كمزية عضوية مستقلة عن بدلات المجلس.</p>
                     </div>
                   </div>
                 )}
@@ -402,29 +401,29 @@ export default function EventsMaster() {
               {isDeviceOffer && (
                 <div className="p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl border border-emerald-200 dark:border-emerald-800 space-y-3">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-[10px] font-black text-emerald-700 dark:text-emerald-300 uppercase">ط¨ظٹط§ظ†ط§طھ ط§ظ„ط¬ظ‡ط§ط² ظˆط®ط·ط© ط§ظ„طھظ‚ط³ظٹط·</p>
-                    <span className="text-[9px] font-black px-2 py-1 rounded-lg bg-white/70 text-emerald-700 border border-emerald-200">ط¨ط¯ظˆظ† ظپظˆط§ط¦ط¯ ظˆط¨ط¯ظˆظ† ظ…ظ‚ط¯ظ…</span>
+                    <p className="text-[10px] font-black text-emerald-700 dark:text-emerald-300 uppercase">بيانات الجهاز وخطة التقسيط</p>
+                    <span className="text-[9px] font-black px-2 py-1 rounded-lg bg-white/70 text-emerald-700 border border-emerald-200">بدون فوائد وبدون مقدم</span>
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    <FormField label="ظپط¦ط© ط§ظ„ط¬ظ‡ط§ط²" required><input value={formData.deviceCategory} onChange={e => setField("deviceCategory", e.target.value)} placeholder="ظ‡ط§طھظپ / طھط§ط¨ظ„طھ / ظ„ط§ط¨طھظˆط¨" className={clsx("w-full px-3 py-2.5 rounded-xl border text-xs font-bold", T.inp)} /></FormField>
-                    <FormField label="ط§ظ„ط¹ظ„ط§ظ…ط© ط§ظ„طھط¬ط§ط±ظٹط©" required><input value={formData.deviceBrand} onChange={e => setField("deviceBrand", e.target.value)} placeholder="Samsung / Apple" className={clsx("w-full px-3 py-2.5 rounded-xl border text-xs font-bold", T.inp)} /></FormField>
-                    <FormField label="ط§ظ„ظ…ظˆط¯ظٹظ„" required><input value={formData.deviceModel} onChange={e => setField("deviceModel", e.target.value)} className={clsx("w-full px-3 py-2.5 rounded-xl border text-xs font-bold", T.inp)} /></FormField>
-                    <FormField label="ط§ظ„ظ„ظˆظ†"><input value={formData.deviceColor} onChange={e => setField("deviceColor", e.target.value)} className={clsx("w-full px-3 py-2.5 rounded-xl border text-xs font-bold", T.inp)} /></FormField>
-                    <FormField label="ط§ظ„ط³ط¹ط© / ط§ظ„ظ…ظˆط§طµظپط§طھ"><input value={formData.deviceStorage} onChange={e => setField("deviceStorage", e.target.value)} placeholder="128 GB / RAM 8 GB" className={clsx("w-full px-3 py-2.5 rounded-xl border text-xs font-bold", T.inp)} /></FormField>
-                    <FormField label="ط§ظ„ط³ط¹ط± ط§ظ„ط¥ط¬ظ…ط§ظ„ظٹ" required><input type="number" min="0" value={formData.devicePrice} onChange={e => setField("devicePrice", e.target.value)} className={clsx("w-full px-3 py-2.5 rounded-xl border text-xs font-black", T.inp)} /></FormField>
-                    <FormField label="ط¹ط¯ط¯ ط£ط´ظ‡ط± ط§ظ„طھظ‚ط³ظٹط·" required><input type="number" min="1" value={formData.installmentMonths} onChange={e => setField("installmentMonths", e.target.value)} className={clsx("w-full px-3 py-2.5 rounded-xl border text-xs font-black", T.inp)} /></FormField>
-                    <FormField label="ط¨ط¯ط§ظٹط© ط£ظˆظ„ ظ‚ط³ط·"><ArabicDatePicker value={formData.installmentStart} onChange={v => setField("installmentStart", v)} minVal={formData.date} /></FormField>
+                    <FormField label="فئة الجهاز" required><input value={formData.deviceCategory} onChange={e => setField("deviceCategory", e.target.value)} placeholder="هاتف / تابلت / لابتوب" className={clsx("w-full px-3 py-2.5 rounded-xl border text-xs font-bold", T.inp)} /></FormField>
+                    <FormField label="العلامة التجارية" required><input value={formData.deviceBrand} onChange={e => setField("deviceBrand", e.target.value)} placeholder="Samsung / Apple" className={clsx("w-full px-3 py-2.5 rounded-xl border text-xs font-bold", T.inp)} /></FormField>
+                    <FormField label="الموديل" required><input value={formData.deviceModel} onChange={e => setField("deviceModel", e.target.value)} className={clsx("w-full px-3 py-2.5 rounded-xl border text-xs font-bold", T.inp)} /></FormField>
+                    <FormField label="اللون"><input value={formData.deviceColor} onChange={e => setField("deviceColor", e.target.value)} className={clsx("w-full px-3 py-2.5 rounded-xl border text-xs font-bold", T.inp)} /></FormField>
+                    <FormField label="السعة / المواصفات"><input value={formData.deviceStorage} onChange={e => setField("deviceStorage", e.target.value)} placeholder="128 GB / RAM 8 GB" className={clsx("w-full px-3 py-2.5 rounded-xl border text-xs font-bold", T.inp)} /></FormField>
+                    <FormField label="السعر الإجمالي" required><input type="number" min="0" value={formData.devicePrice} onChange={e => setField("devicePrice", e.target.value)} className={clsx("w-full px-3 py-2.5 rounded-xl border text-xs font-black", T.inp)} /></FormField>
+                    <FormField label="عدد أشهر التقسيط" required><input type="number" min="1" value={formData.installmentMonths} onChange={e => setField("installmentMonths", e.target.value)} className={clsx("w-full px-3 py-2.5 rounded-xl border text-xs font-black", T.inp)} /></FormField>
+                    <FormField label="بداية أول قسط"><ArabicDatePicker value={formData.installmentStart} onChange={v => setField("installmentStart", v)} minVal={formData.date} /></FormField>
                   </div>
                   <div className="grid grid-cols-2 gap-3 text-center">
-                    <div className="p-3 rounded-xl bg-white/80 border border-emerald-100"><p className="text-[9px] font-black text-slate-400">ط§ظ„ظ…ظ‚ط¯ظ…</p><p className="text-base font-black text-emerald-700">0 ط¬ظ†ظٹظ‡</p></div>
-                    <div className="p-3 rounded-xl bg-white/80 border border-emerald-100"><p className="text-[9px] font-black text-slate-400">ط§ظ„ظ‚ط³ط· ط§ظ„ط´ظ‡ط±ظٹ ط§ظ„طھظ‚ط¯ظٹط±ظٹ</p><p className="text-base font-black text-emerald-700">{formatMoney(calculatedInstallment)}</p></div>
+                    <div className="p-3 rounded-xl bg-white/80 border border-emerald-100"><p className="text-[9px] font-black text-slate-400">المقدم</p><p className="text-base font-black text-emerald-700">0 جنيه</p></div>
+                    <div className="p-3 rounded-xl bg-white/80 border border-emerald-100"><p className="text-[9px] font-black text-slate-400">القسط الشهري التقديري</p><p className="text-base font-black text-emerald-700">{formatMoney(calculatedInstallment)}</p></div>
                   </div>
                 </div>
               )}
 
               {boardMembers.length > 0 && (
                 <div className="p-4 bg-sky-50 dark:bg-sky-900/20 rounded-2xl border border-sky-100 dark:border-sky-800">
-                  <p className="text-[10px] font-black text-sky-700 uppercase mb-2 flex items-center gap-1"><Users size={12} /> ظ‡ظٹط¦ط© ط§ظ„ط¥ط´ط±ط§ظپ (ظ…ط¬ظ„ط³ ط§ظ„ط¥ط¯ط§ط±ط©)</p>
+                  <p className="text-[10px] font-black text-sky-700 uppercase mb-2 flex items-center gap-1"><Users size={12} /> هيئة الإشراف (مجلس الإدارة)</p>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                     {boardMembers.map(m => (
                       <label key={m.id} className="flex items-center gap-2 text-[10px] font-bold cursor-pointer select-none p-1.5 hover:bg-sky-100 dark:hover:bg-sky-900/20 rounded-lg transition-colors">
@@ -438,49 +437,49 @@ export default function EventsMaster() {
             </div>
 
             <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex gap-3">
-              <button type="button" onClick={closeModal} className={clsx("flex-[1] py-2.5 rounded-xl font-black text-xs border transition-all", T.muted)}>ط¥ظ„ط؛ط§ط،</button>
+              <button type="button" onClick={closeModal} className={clsx("flex-[1] py-2.5 rounded-xl font-black text-xs border transition-all", T.muted)}>إلغاء</button>
               <button type="button" onClick={handleSaveEvent} disabled={saving} className="flex-[3] py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-black text-xs shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50">
-                {saving ? <div className="animate-spin"><Clock size={14} /></div> : <Save size={14} />} {editId ? "طھط­ط¯ظٹط« ط§ظ„ظپط¹ط§ظ„ظٹط©" : "ط§ط¹طھظ…ط§ط¯ ظˆط­ظپط¸"}
+                {saving ? <div className="animate-spin"><Clock size={14} /></div> : <Save size={14} />} {editId ? "تحديث الفعالية" : "اعتماد وحفظ"}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* â•گâ•گâ•گ ط±ط£ط³ ط§ظ„طµظپط­ط© â•گâ•گâ•گ */}
+      {/* ═══ رأس الصفحة ═══ */}
       <div className="hidden">
         <div className="flex items-center gap-3">
           <div className="p-3 bg-indigo-100 dark:bg-indigo-900/30 rounded-2xl text-indigo-600"><Tent size={26} /></div>
-          <div><h1 className="text-xl font-black tracking-tight">ظ„ظˆط­ط© طھط­ظƒظ… ط§ظ„ظپط¹ط§ظ„ظٹط§طھ ظˆط§ظ„ط£ظ†ط´ط·ط©</h1><p className={clsx("text-[10px] font-bold mt-0.5", T.muted)}>ط¥ط¯ط§ط±ط© ط§ظ„ظˆط¬ظ‡ط§طھ â€¢ ط§ظ„ظ…ظˆط§ط¹ظٹط¯ â€¢ ط§ظ„طھظ‚ط§ط±ظٹط± ط§ظ„ظ…ط§ظ„ظٹط©</p></div>
+          <div><h1 className="text-xl font-black tracking-tight">لوحة تحكم الفعاليات والأنشطة</h1><p className={clsx("text-[10px] font-bold mt-0.5", T.muted)}>إدارة الوجهات • المواعيد • التقارير المالية</p></div>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => printFinancialReport(events, bookingsMap)} className="px-4 py-2.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-xl font-black text-xs flex items-center gap-1.5 transition-all">
-            <BarChart3 size={15} /> ط§ظ„طھظ‚ط±ظٹط± ط§ظ„ظ…ط§ظ„ظٹ
+            <BarChart3 size={15} /> التقرير المالي
           </button>
           <button onClick={() => { closeModal(); setIsModalOpen(true); }} className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-black text-xs shadow-md active:scale-95 transition-all flex items-center gap-2">
-            <Plus size={15} /> ظپط¹ط§ظ„ظٹط© ط¬ط¯ظٹط¯ط©
+            <Plus size={15} /> فعالية جديدة
           </button>
         </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
-        <StatCard label="ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ظپط¹ط§ظ„ظٹط§طھ" value={stats.total} icon={CalendarDays} colorClass="text-slate-700 dark:text-slate-300" />
-        <StatCard label="ظپط¹ط§ظ„ظٹط§طھ ظ‚ط§ط¯ظ…ط©" value={stats.upcoming} icon={Clock} colorClass="text-indigo-600" />
-        <StatCard label="ظ…ظپطھظˆط­ ط§ظ„ط­ط¬ط²" value={stats.openCount} icon={Ticket} colorClass="text-sky-600" />
-        <StatCard label="ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط£ظپط±ط§ط¯" value={stats.totalPax} icon={Users} colorClass="text-violet-600" />
-        <StatCard label="ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط¥ظٹط±ط§ط¯ط§طھ" value={formatMoney(stats.totalRevenue)} icon={DollarSign} colorClass="text-emerald-600" />
+        <StatCard label="إجمالي الفعاليات" value={stats.total} icon={CalendarDays} colorClass="text-slate-700 dark:text-slate-300" />
+        <StatCard label="فعاليات قادمة" value={stats.upcoming} icon={Clock} colorClass="text-indigo-600" />
+        <StatCard label="مفتوح الحجز" value={stats.openCount} icon={Ticket} colorClass="text-sky-600" />
+        <StatCard label="إجمالي الأفراد" value={stats.totalPax} icon={Users} colorClass="text-violet-600" />
+        <StatCard label="إجمالي الإيرادات" value={formatMoney(stats.totalRevenue)} icon={DollarSign} colorClass="text-emerald-600" />
       </div>
 
-      {/* â•گâ•گâ•گ ط¹ط±ط¶ ط§ظ„ظپط¹ط§ظ„ظٹط§طھ â•گâ•گâ•گ */}
+      {/* ═══ عرض الفعاليات ═══ */}
       <div className={clsx("rounded-2xl border shadow-sm overflow-hidden", T.card)}>
         <div className="grid grid-cols-1 xl:grid-cols-[0.95fr_1.05fr]">
           <div className="p-5 bg-[radial-gradient(circle_at_top_right,_rgba(14,165,233,0.16),_transparent_34%),linear-gradient(135deg,rgba(20,184,166,0.07),rgba(255,255,255,0.9))] dark:bg-[radial-gradient(circle_at_top_right,_rgba(14,165,233,0.12),_transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.96),rgba(30,41,59,0.82))]">
             <div className="mb-3 flex items-center gap-2">
               <Tent size={18} className="text-sky-600" />
-              <h2 className="text-sm font-black text-slate-900 dark:text-white">ط§ظ„ظپط¹ط§ظ„ظٹط§طھ ط§ظ„ظ‚ط§ط¯ظ…ط©</h2>
+              <h2 className="text-sm font-black text-slate-900 dark:text-white">الفعاليات القادمة</h2>
             </div>
             {upcomingEvents.length === 0 ? (
-              <p className="rounded-xl border border-dashed border-slate-200 bg-white/70 p-4 text-center text-xs font-bold text-slate-400 dark:border-slate-700 dark:bg-slate-900/40">ظ„ط§ طھظˆط¬ط¯ ظپط¹ط§ظ„ظٹط§طھ ظ‚ط§ط¯ظ…ط© ظ…ط³ط¬ظ„ط©.</p>
+              <p className="rounded-xl border border-dashed border-slate-200 bg-white/70 p-4 text-center text-xs font-bold text-slate-400 dark:border-slate-700 dark:bg-slate-900/40">لا توجد فعاليات قادمة مسجلة.</p>
             ) : (
               <div className="space-y-2">
                 {upcomingEvents.map((event) => {
@@ -496,7 +495,7 @@ export default function EventsMaster() {
                         </div>
                         <StatusBadge tone={getEventStatusTone(status)}>{status.label}</StatusBadge>
                       </div>
-                      {capacity > 0 && <p className="mt-2 text-[10px] font-black text-slate-500">ط§ظ„ط³ط¹ط©: {booked}/{capacity}</p>}
+                      {capacity > 0 && <p className="mt-2 text-[10px] font-black text-slate-500">السعة: {booked}/{capacity}</p>}
                     </div>
                   );
                 })}
@@ -505,32 +504,32 @@ export default function EventsMaster() {
           </div>
           <div className="border-t border-slate-100 p-5 dark:border-slate-800 xl:border-r xl:border-t-0">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-              <SearchInput value={searchQ} onChange={setSearchQ} placeholder="ط¨ط­ط« ط¨ط§ط³ظ… ط§ظ„ظپط¹ط§ظ„ظٹط© ط£ظˆ ط§ظ„ظ†ظˆط¹ ط£ظˆ ط§ظ„ظ…ظƒط§ظ†..." className="lg:max-w-md" />
+              <SearchInput value={searchQ} onChange={setSearchQ} placeholder="بحث باسم الفعالية أو النوع أو المكان..." className="lg:max-w-md" />
               <FilterBar className="flex-1 justify-end">
                 <select className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-                  <option value="all">ظƒظ„ ط§ظ„ط­ط§ظ„ط§طھ</option>
-                  <option value="emerald">ط§ظ„ط­ط¬ط² ظ…ظپطھظˆط­</option>
-                  <option value="amber">ظ‚ط±ظٹط¨ظ‹ط§</option>
-                  <option value="orange">ط§ظ„ط­ط¬ط² ظ…ط؛ظ„ظ‚</option>
-                  <option value="rose">ط§ظƒطھظ…ظ„طھ</option>
-                  <option value="slate">ظ…ظ†طھظ‡ظٹط©</option>
+                  <option value="all">كل الحالات</option>
+                  <option value="emerald">الحجز مفتوح</option>
+                  <option value="amber">قريبًا</option>
+                  <option value="orange">الحجز مغلق</option>
+                  <option value="rose">اكتملت</option>
+                  <option value="slate">منتهية</option>
                 </select>
                 <select className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
-                  <option value="all">ظƒظ„ ط§ظ„ط£ظ†ظˆط§ط¹</option>
+                  <option value="all">كل الأنواع</option>
                   {eventTypesInUse.map((type) => <option key={type} value={type}>{type}</option>)}
                 </select>
                 {(searchQ || statusFilter !== "all" || typeFilter !== "all") && (
-                  <Button variant="ghost" size="sm" onClick={() => { setSearchQ(""); setStatusFilter("all"); setTypeFilter("all"); }}>ظ…ط³ط­</Button>
+                  <Button variant="ghost" size="sm" onClick={() => { setSearchQ(""); setStatusFilter("all"); setTypeFilter("all"); }}>مسح</Button>
                 )}
               </FilterBar>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-3">
               <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/40">
-                <p className="text-[10px] font-black text-slate-400">ظ†طھط§ط¦ط¬ ط§ظ„ط¹ط±ط¶</p>
+                <p className="text-[10px] font-black text-slate-400">نتائج العرض</p>
                 <p className="mt-1 text-xl font-black text-slate-900 dark:text-white">{displayedEvents.length}</p>
               </div>
               <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/40">
-                <p className="text-[10px] font-black text-slate-400">ط£ظ†ظˆط§ط¹ ظ…ط³طھط®ط¯ظ…ط©</p>
+                <p className="text-[10px] font-black text-slate-400">أنواع مستخدمة</p>
                 <p className="mt-1 text-xl font-black text-slate-900 dark:text-white">{eventTypesInUse.length}</p>
               </div>
             </div>
@@ -541,7 +540,7 @@ export default function EventsMaster() {
       {displayedEvents.length === 0 ? (
         <div className={clsx("p-20 text-center rounded-3xl border-2 border-dashed", T.card)}>
           <Tent size={44} className="mx-auto text-slate-300 mb-3" />
-          <p className="text-sm font-black text-slate-400">ظ„ط§ طھظˆط¬ط¯ ظپط¹ط§ظ„ظٹط§طھ ظ…ط³ط¬ظ„ط©</p>
+          <p className="text-sm font-black text-slate-400">لا توجد فعاليات مسجلة</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -566,7 +565,7 @@ export default function EventsMaster() {
                       <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
                         <span className={clsx("text-[8px] px-2 py-0.5 rounded-full font-black border", status.bg)}>{status.label}</span>
                         <span className="text-[8px] px-2 py-0.5 rounded-full font-black bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">{event.type}</span>
-                        {event.isFree && <span className="text-[8px] px-2 py-0.5 rounded-full font-black bg-emerald-100 text-emerald-700 border border-emerald-200">ظ…ط¬ط§ظ†ظٹ</span>}
+                        {event.isFree && <span className="text-[8px] px-2 py-0.5 rounded-full font-black bg-emerald-100 text-emerald-700 border border-emerald-200">مجاني</span>}
                       </div>
                       <h3 className="font-black text-sm truncate" title={event.title}>{event.title}</h3>
                     </div>
@@ -580,40 +579,40 @@ export default function EventsMaster() {
                   <div className="space-y-1.5 mb-3">
                     <div className={clsx("flex justify-between items-center text-[9px] font-bold px-2.5 py-1.5 rounded-lg border", T.muted, "bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-700")}>
                       <span className="flex items-center gap-1"><CalendarClock size={10} /> {event.date}</span>
-                      {!isCompleted ? <span className={clsx("font-black", isNear ? "text-rose-500 animate-pulse" : "text-emerald-600")}>{daysLeft === 0 ? "ًںژ‰ ط§ظ„ظٹظˆظ…" : `ط¨ط§ظ‚ظٹ ${daysLeft} ظٹظˆظ…`}</span> : <span className="text-slate-400">ط§ظ†طھظ‡طھ</span>}
+                      {!isCompleted ? <span className={clsx("font-black", isNear ? "text-rose-500 animate-pulse" : "text-emerald-600")}>{daysLeft === 0 ? "🎉 اليوم" : `باقي ${daysLeft} يوم`}</span> : <span className="text-slate-400">انتهت</span>}
                     </div>
                     <div className={clsx("flex items-center justify-between text-[8px] font-bold px-2 py-1 rounded-lg", T.muted)}>
-                      <span>ط§ظ„ط­ط¬ط²: {event.bookingStart} â†گ {event.bookingEnd}</span>
+                      <span>الحجز: {event.bookingStart} ← {event.bookingEnd}</span>
                       <span className={clsx("w-1.5 h-1.5 rounded-full", status.color === "emerald" ? "bg-emerald-500 animate-pulse" : "bg-rose-400")} />
                     </div>
                   </div>
 
                   <div className="mb-3">
-                    <div className="flex justify-between text-[9px] font-black mb-1"><span className={clsx(T.muted, "flex items-center gap-1")}><Users size={10} /> ط§ظ„ط¥ط´ط؛ط§ظ„</span><span className={booked >= capacity ? "text-rose-600" : "text-teal-600"}>{booked} / {capacity} ظپط±ط¯ ({Math.round(occupancyRate)}%)</span></div>
+                    <div className="flex justify-between text-[9px] font-black mb-1"><span className={clsx(T.muted, "flex items-center gap-1")}><Users size={10} /> الإشغال</span><span className={booked >= capacity ? "text-rose-600" : "text-teal-600"}>{booked} / {capacity} فرد ({Math.round(occupancyRate)}%)</span></div>
                     <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden"><div className={clsx("h-full rounded-full transition-all duration-700", booked >= capacity ? "bg-rose-500" : occupancyRate > 75 ? "bg-amber-500" : "bg-teal-500")} style={{ width: `${occupancyRate}%` }} /></div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 mb-2">
-                    <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-2 text-center border border-emerald-100 dark:border-emerald-900"><p className="text-base font-black text-emerald-600">{confirmedCount}</p><p className="text-[8px] font-bold text-emerald-500">ظ…ط¤ظƒط¯</p></div>
-                    <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-2 text-center border border-amber-100 dark:border-amber-900"><p className="text-base font-black text-amber-600">{pendingCount}</p><p className="text-[8px] font-bold text-amber-500">ظ…ط¹ظ„ظ‚</p></div>
+                    <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-2 text-center border border-emerald-100 dark:border-emerald-900"><p className="text-base font-black text-emerald-600">{confirmedCount}</p><p className="text-[8px] font-bold text-emerald-500">مؤكد</p></div>
+                    <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-2 text-center border border-amber-100 dark:border-amber-900"><p className="text-base font-black text-amber-600">{pendingCount}</p><p className="text-[8px] font-bold text-amber-500">معلق</p></div>
                   </div>
 
                   {!event.isFree ? (
                     <div className="grid grid-cols-3 gap-2">
-                      <div className={clsx("p-2 rounded-xl text-center border", "bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-700")}><p className="text-[8px] font-black text-slate-400 uppercase">ظ‚ظٹظ…ط© ط§ظ„ط§ط´طھط±ط§ظƒ ط¹ظ„ظ‰ ط§ظ„ط¹ط¶ظˆ</p><p className="text-xs font-black text-indigo-600">{formatMoney(event.memberPrice || 0)}</p></div>
-                      <div className={clsx("p-2 rounded-xl text-center border", "bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-900")}><p className="text-[8px] font-black text-emerald-600 uppercase">ظ‚ظٹظ…ط© ط§ظ„ط¯ط¹ظ… ط§ظ„ط®ط§طµ ط¨ط§ظ„ط¹ط¶ظˆ</p><p className="text-xs font-black text-emerald-700 dark:text-emerald-300">{formatMoney(event.memberSupportValue || 0)}</p></div>
-                      <div className={clsx("p-2 rounded-xl text-center border", "bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-700")}><p className="text-[8px] font-black text-slate-400 uppercase">ط³ط¹ط± ط§ظ„ظ…ط±ط§ظپظ‚</p><p className="text-xs font-black text-slate-700 dark:text-slate-300">{formatMoney(event.companionPrice || 0)}</p></div>
+                      <div className={clsx("p-2 rounded-xl text-center border", "bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-700")}><p className="text-[8px] font-black text-slate-400 uppercase">قيمة الاشتراك على العضو</p><p className="text-xs font-black text-indigo-600">{formatMoney(event.memberPrice || 0)}</p></div>
+                      <div className={clsx("p-2 rounded-xl text-center border", "bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-900")}><p className="text-[8px] font-black text-emerald-600 uppercase">قيمة الدعم الخاص بالعضو</p><p className="text-xs font-black text-emerald-700 dark:text-emerald-300">{formatMoney(event.memberSupportValue || 0)}</p></div>
+                      <div className={clsx("p-2 rounded-xl text-center border", "bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-700")}><p className="text-[8px] font-black text-slate-400 uppercase">سعر المرافق</p><p className="text-xs font-black text-slate-700 dark:text-slate-300">{formatMoney(event.companionPrice || 0)}</p></div>
                     </div>
-                  ) : <div className="bg-emerald-50 dark:bg-emerald-900/20 p-2 rounded-xl text-center text-emerald-600 border border-emerald-100 dark:border-emerald-900"><p className="text-xs font-black">âœ“ ظپط¹ط§ظ„ظٹط© ظ…ط¬ط§ظ†ظٹط©</p></div>}
+                  ) : <div className="bg-emerald-50 dark:bg-emerald-900/20 p-2 rounded-xl text-center text-emerald-600 border border-emerald-100 dark:border-emerald-900"><p className="text-xs font-black">✓ فعالية مجانية</p></div>}
 
                   {event.supervisors?.length > 0 && (
                     <div className="mt-2 flex items-center gap-1 text-[8px] font-bold text-sky-600 bg-sky-50 dark:bg-sky-900/20 px-2.5 py-1.5 rounded-xl border border-sky-100 dark:border-sky-800">
-                      <ShieldAlert size={10} /><span className="truncate">ط¥ط´ط±ط§ظپ: {Array.isArray(event.supervisors) ? event.supervisors.join(" - ") : event.supervisors}</span>
+                      <ShieldAlert size={10} /><span className="truncate">إشراف: {Array.isArray(event.supervisors) ? event.supervisors.join(" - ") : event.supervisors}</span>
                     </div>
                   )}
                   {pendingCount > 0 && (
                     <div className="mt-2 flex items-center gap-1 text-[8px] font-bold text-amber-600 bg-amber-50 dark:bg-amber-900/20 px-2.5 py-1.5 rounded-xl border border-amber-100 dark:border-amber-800 animate-pulse">
-                      <AlertTriangle size={10} /> {pendingCount} ط­ط¬ط² ظپظٹ ط§ظ†طھط¸ط§ط± ط§ظ„ط¯ظپط¹
+                      <AlertTriangle size={10} /> {pendingCount} حجز في انتظار الدفع
                     </div>
                   )}
                 </div>

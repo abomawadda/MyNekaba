@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { collection, onSnapshot, query } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, limit, onSnapshot, query, where } from "firebase/firestore";
 import clsx from "clsx";
 import { BadgeCheck, Bus, CalendarDays, Gift, KeyRound, LogOut, Ticket, UserRound } from "lucide-react";
 import { db } from "../../app/providers/FirebaseProvider";
@@ -10,6 +10,7 @@ import { maskNationalId } from "../../security/memberAccountService";
 import { isAssemblyMember } from "../../utils/memberBenefits";
 import { ChangePasswordCard } from "../auth/ResetPasswordPage";
 import { formatMoney } from "../../utils/numberFormat";
+import { buildMemberPortalIdentity } from "./memberPortalIdentity";
 
 function Card({ title, icon, children }) {
   const T = useT();
@@ -32,40 +33,99 @@ export default function MemberPortal() {
   const [benefits, setBenefits] = useState([]);
   const [events, setEvents] = useState([]);
 
-  const keys = useMemo(
-    () => [user?.employeeId, user?.id, user?.phone].filter(Boolean).map(String),
-    [user]
-  );
+  const identity = useMemo(() => buildMemberPortalIdentity(user, employee), [user, employee]);
+  const lookupIdentity = useMemo(() => buildMemberPortalIdentity(user, null), [user]);
 
   useEffect(() => {
-    if (!keys.length) return;
-    const unsub = onSnapshot(query(collection(db, "employees")), (snap) => {
-      const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      const mine = all.find((e) =>
-        [e.jobId, e.employeeCode, e.id, e.phone, e.mobile].filter(Boolean).map(String).some((v) => keys.includes(v))
-      ) || null;
-      setEmployee(mine);
+    let cancelled = false;
+
+    async function loadEmployee() {
+      if (!db || !lookupIdentity.employeeLookupKeys.length) {
+        setEmployee(null);
+        return;
+      }
+
+      const directId = lookupIdentity.employeeDocId;
+      if (directId) {
+        const directSnap = await getDoc(doc(db, "employees", directId));
+        if (cancelled) return;
+        if (directSnap.exists()) {
+          setEmployee({ id: directSnap.id, ...directSnap.data() });
+          return;
+        }
+      }
+
+      const scopedQueries = [];
+
+      if (lookupIdentity.jobCode) {
+        scopedQueries.push(
+          query(collection(db, "employees"), where("jobId", "==", lookupIdentity.jobCode), limit(1)),
+          query(collection(db, "employees"), where("employeeCode", "==", lookupIdentity.jobCode), limit(1))
+        );
+      }
+
+      for (const scopedQuery of scopedQueries) {
+        const snap = await getDocs(scopedQuery);
+        if (cancelled) return;
+        if (!snap.empty) {
+          const first = snap.docs[0];
+          setEmployee({ id: first.id, ...first.data() });
+          return;
+        }
+      }
+
+      setEmployee(null);
+    }
+
+    loadEmployee().catch(() => {
+      if (!cancelled) setEmployee(null);
     });
-    return unsub;
-  }, [keys]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [lookupIdentity]);
 
   useEffect(() => {
-    const unsubB = onSnapshot(query(collection(db, "event_bookings")), (snap) => {
-      const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setBookings(all.filter((b) =>
-        [b.memberId, b.memberName].filter(Boolean).map(String).some((v) =>
-          keys.includes(v) || (employee && [employee.jobId, employee.id, employee.phone].filter(Boolean).map(String).includes(v))
-        )
-      ));
-    });
-    const unsubM = onSnapshot(query(collection(db, "member_benefits")), (snap) => {
-      const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setBenefits(all.filter((b) =>
-        [b.memberId, b.memberName].filter(Boolean).map(String).some((v) =>
-          keys.includes(v) || (employee && [employee.jobId, employee.id].filter(Boolean).map(String).includes(v))
-        )
-      ));
-    });
+    if (!db || identity.memberIdKeys.length === 0) {
+      queueMicrotask(() => {
+        setBookings([]);
+        setBenefits([]);
+      });
+      return undefined;
+    }
+
+    const bookingsById = new Map();
+    const benefitsById = new Map();
+    const syncBookings = () => setBookings([...bookingsById.values()]);
+    const syncBenefits = () => setBenefits([...benefitsById.values()]);
+
+    const unsubBookings = identity.memberIdKeys.map((memberId) =>
+      onSnapshot(
+        query(collection(db, "event_bookings"), where("memberId", "==", memberId)),
+        (snap) => {
+          snap.docChanges().forEach((change) => {
+            if (change.type === "removed") bookingsById.delete(change.doc.id);
+            else bookingsById.set(change.doc.id, { id: change.doc.id, ...change.doc.data() });
+          });
+          syncBookings();
+        },
+        () => syncBookings()
+      )
+    );
+    const unsubBenefits = identity.memberIdKeys.map((memberId) =>
+      onSnapshot(
+        query(collection(db, "member_benefits"), where("memberId", "==", memberId)),
+        (snap) => {
+          snap.docChanges().forEach((change) => {
+            if (change.type === "removed") benefitsById.delete(change.doc.id);
+            else benefitsById.set(change.doc.id, { id: change.doc.id, ...change.doc.data() });
+          });
+          syncBenefits();
+        },
+        () => syncBenefits()
+      )
+    );
     const unsubE = onSnapshot(query(collection(db, "events")), (snap) => {
       const today = new Date().toISOString().slice(0, 10);
       setEvents(
@@ -76,8 +136,12 @@ export default function MemberPortal() {
           .slice(0, 6)
       );
     });
-    return () => { unsubB(); unsubM(); unsubE(); };
-  }, [keys, employee]);
+    return () => {
+      unsubBookings.forEach((unsubscribe) => unsubscribe());
+      unsubBenefits.forEach((unsubscribe) => unsubscribe());
+      unsubE();
+    };
+  }, [identity]);
 
   const totalBenefits = useMemo(
     () => benefits.filter((b) => b.status !== "cancelled").reduce((s, b) => s + Number(b.amount || 0), 0),
