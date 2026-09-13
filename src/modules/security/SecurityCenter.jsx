@@ -25,6 +25,7 @@ import { useAuth } from "../../app/providers/AuthProvider";
 import { ROLE_LABELS, ROLE_OPTIONS } from "../../security/permissions";
 import { adminForcePasswordReset } from "../../security/memberAccountService";
 import { summarizeIdentityMigration } from "../../security/identityMapping";
+import { approvePendingAccount, rejectPendingAccount } from "../../security/registrationApi";
 import NewsManager from "./NewsManager";
 
 const _stat = { teal: "bg-teal-50 border-teal-100", sky: "bg-sky-50 border-sky-100", amber: "bg-amber-50 border-amber-100", rose: "bg-rose-50 border-rose-100" };
@@ -102,11 +103,14 @@ export default function SecurityCenter() {
 
   const handleRoleChange = async (account, role) => {
     try {
+      if (account?.accountStatus === "pending_approval") {
+        if (["admin", "treasurer"].includes(role) && !window.confirm("هذا الدور عالي الصلاحية. هل تريد اعتماد الحساب بهذا الدور؟")) return;
+        await approvePendingAccount(account.id, role);
+        showToast("تم اعتماد الحساب وتحديد الصفة بنجاح.");
+        return;
+      }
       const updates = {
         role,
-        ...(account?.accountStatus === "pending_approval"
-          ? { accountStatus: "active" }
-          : {}),
       };
       await updateAccountAccess(account.id, updates);
       showToast(
@@ -119,12 +123,26 @@ export default function SecurityCenter() {
     }
   };
 
-  const handleStatusChange = async (accountId, accountStatus) => {
+  const handleStatusChange = async (account, accountStatus) => {
     try {
-      await updateAccountAccess(accountId, { accountStatus });
+      if (account?.accountStatus === "pending_approval" && accountStatus === "active") {
+        showToast("استخدم اختيار الدور لاعتماد الحساب المعلق عبر مسار الاعتماد الآمن.", "error");
+        return;
+      }
+      await updateAccountAccess(account.id, { accountStatus });
       showToast("تم تحديث حالة الحساب.");
     } catch (error) {
       showToast(error.message || "تعذر تحديث حالة الحساب.", "error");
+    }
+  };
+
+  const handleRejectPending = async (account) => {
+    if (!window.confirm(`رفض طلب إنشاء حساب ${account.fullName || account.username || ""}؟`)) return;
+    try {
+      await rejectPendingAccount(account.id);
+      showToast("تم رفض طلب الحساب.");
+    } catch (error) {
+      showToast(error.message || "تعذر رفض الطلب.", "error");
     }
   };
 
@@ -283,7 +301,7 @@ export default function SecurityCenter() {
                       <td className="py-3 px-4">
                         <select
                           value={account.accountStatus || "active"}
-                          onChange={(e) => handleStatusChange(account.id, e.target.value)}
+                          onChange={(e) => handleStatusChange(account, e.target.value)}
                           className={clsx("px-3 py-2 rounded-xl border text-[11px] font-black", T.sel)}
                         >
                           <option value="active">نشط</option>
@@ -307,6 +325,14 @@ export default function SecurityCenter() {
                           >
                             إعادة تعيين
                           </button>
+                          {account.accountStatus === "pending_approval" && (
+                            <button
+                              onClick={() => handleRejectPending(account)}
+                              className="px-3 py-2 rounded-xl bg-rose-50 text-rose-700 text-[10px] font-black hover:bg-rose-100 transition-colors"
+                            >
+                              رفض
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

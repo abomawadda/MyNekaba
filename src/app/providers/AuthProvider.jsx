@@ -40,8 +40,8 @@ import {
 } from "../../security/identityMapping";
 import {
   changeAccountPassword,
-  resetMemberPassword,
 } from "../../security/memberAccountService";
+import { requestAccountRecovery } from "../../security/registrationApi";
 import {
   SESSION_DURATION_MS,
   MAX_LOGIN_ATTEMPTS,
@@ -845,7 +845,7 @@ export function AuthProvider({ children }) {
   );
 
   const requestPasswordReset = useCallback(async (payload) => {
-    await resetMemberPassword(payload);
+    await requestAccountRecovery(payload);
   }, []);
 
   const logout = useCallback(

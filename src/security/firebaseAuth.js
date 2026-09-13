@@ -1,6 +1,7 @@
 import {
   createUserWithEmailAndPassword,
   getIdTokenResult,
+  sendEmailVerification,
   signInWithCustomToken,
   signInWithEmailAndPassword,
   signOut,
@@ -59,6 +60,19 @@ export async function firebaseSignInWithCustomToken(customToken) {
   } catch (error) {
     throw new Error(translateFirebaseError(error));
   }
+}
+
+export async function firebaseSendCurrentUserEmailVerification() {
+  if (!auth?.currentUser) throw new Error("لا توجد جلسة Firebase نشطة لإرسال تحقق البريد.");
+  await sendEmailVerification(auth.currentUser, {
+    url: `${window.location.origin}/login?emailVerified=1`,
+    handleCodeInApp: false,
+  });
+}
+
+export async function getFirebaseIdToken(forceRefresh = false) {
+  if (!auth?.currentUser) return "";
+  return auth.currentUser.getIdToken(forceRefresh);
 }
 
 export async function firebaseSignOut() {

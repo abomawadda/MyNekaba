@@ -1,7 +1,5 @@
 /* global process, Buffer */
-import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
-import { getAuth } from "firebase-admin/auth";
-import { getFirestore } from "firebase-admin/firestore";
+import { getAdminContext } from "../_lib/firebaseAdmin.js";
 import {
   JIT_FIREBASE_LINKED,
   JIT_LEGACY_ONLY,
@@ -10,7 +8,6 @@ import {
   buildMinimalAccountMetadata,
   classifyJitAccount,
   findAccountByIdentifier,
-  normalizePrivateKey,
   verifyLegacyPassword,
 } from "../_lib/jitAuthCore.js";
 
@@ -18,40 +15,6 @@ const ACCOUNTS_COLLECTION = "user_accounts";
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 const RATE_LIMIT_MAX_ATTEMPTS = 10;
 const attempts = new Map();
-
-function getProjectId() {
-  return process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT || "";
-}
-
-function getCredential() {
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKey = normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY);
-  const projectId = getProjectId();
-
-  if (clientEmail && privateKey && projectId) {
-    return cert({ projectId, clientEmail, privateKey });
-  }
-
-  return applicationDefault();
-}
-
-function getAdminContext() {
-  const projectId = getProjectId();
-  if (!projectId) throw new Error("missing_project_id");
-
-  const app =
-    getApps()[0] ||
-    initializeApp({
-      credential: getCredential(),
-      projectId,
-    });
-
-  return {
-    projectId,
-    auth: getAuth(app),
-    db: getFirestore(app),
-  };
-}
 
 function getAllowedOrigins(req) {
   const configured = String(process.env.JIT_AUTH_ALLOWED_ORIGINS || "")
