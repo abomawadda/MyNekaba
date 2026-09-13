@@ -7,6 +7,7 @@ import {
   maskEmail,
   maskNationalId,
   matchesEmployeeIdentity,
+  normalizeDigits,
   normalizeEgyptianPhone,
   validatePasswordPolicy,
 } from "../../api/_lib/registrationCore.js";
@@ -41,6 +42,7 @@ test("phase 22g employee identity requires strict same-record matching", () => {
 
 test("phase 22g.1 accepts equivalent Egyptian phone formats on the same employee", () => {
   assert.equal(normalizeEgyptianPhone("+20 101 234 5678"), "01012345678");
+  assert.equal(normalizeEgyptianPhone("00201012345678"), "01012345678");
   assert.equal(normalizeEgyptianPhone("1012345678"), "01012345678");
   assert.equal(
     matchesEmployeeIdentity(
@@ -51,6 +53,19 @@ test("phase 22g.1 accepts equivalent Egyptian phone formats on the same employee
         phone: "01012345678",
       }
     ),
+    true
+  );
+});
+
+test("phase 22g.2 normalizes Arabic and Persian digits without corrupting identifiers", () => {
+  assert.equal(normalizeDigits("٢٩١٠١٠١٠١٠١٠١٠"), "29101010101010");
+  assert.equal(normalizeDigits("۲۹۱۰۱۰۱۰۱۰۱۰۱۰"), "29101010101010");
+  assert.equal(
+    matchesEmployeeIdentity(employee, {
+      nationalId: "٢٩١٠١٠١٠١٠١٠١٠",
+      employeeCode: "١٢٣٤",
+      phone: "٠١٠١٢٣٤٥٦٧٨",
+    }),
     true
   );
 });
@@ -105,6 +120,42 @@ test("phase 22g duplicate prevention uses employee identity, not email alone", (
     [{ id: "account-1", employeeId: "emp-doc-1", email: "other@example.com" }],
     employee,
     []
+  );
+
+  assert.equal(duplicate.duplicate, true);
+});
+
+test("phase 22g.2 expired identity verification request does not block safe restart", () => {
+  const duplicate = hasDuplicateAccount(
+    [],
+    employee,
+    [
+      {
+        id: "old-request",
+        employeeId: "emp-doc-1",
+        employeeCode: "1234",
+        status: "identity_verified",
+        expiresAt: "2020-01-01T00:00:00.000Z",
+      },
+    ]
+  );
+
+  assert.equal(duplicate.duplicate, false);
+});
+
+test("phase 22g.2 active identity verification request blocks duplicate restart", () => {
+  const duplicate = hasDuplicateAccount(
+    [],
+    employee,
+    [
+      {
+        id: "active-request",
+        employeeId: "emp-doc-1",
+        employeeCode: "1234",
+        status: "identity_verified",
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+      },
+    ]
   );
 
   assert.equal(duplicate.duplicate, true);

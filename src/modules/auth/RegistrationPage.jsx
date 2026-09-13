@@ -21,7 +21,11 @@ import {
   verifyEmployeeRegistrationIdentity,
 } from "../../security/registrationApi";
 
-const normalizeDigits = (value = "") => String(value).replace(/\D/g, "");
+const normalizeDigits = (value = "") =>
+  String(value ?? "")
+    .replace(/[\u0660-\u0669]/g, (digit) => String(digit.charCodeAt(0) - 0x0660))
+    .replace(/[\u06f0-\u06f9]/g, (digit) => String(digit.charCodeAt(0) - 0x06f0))
+    .replace(/\D/g, "");
 const normalizeText = (value = "") => String(value).trim();
 const isEmail = (value = "") => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeText(value));
 

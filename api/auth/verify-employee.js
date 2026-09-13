@@ -4,11 +4,13 @@ import { getAdminContext, readCollection } from "../_lib/firebaseAdmin.js";
 import {
   DUPLICATE_ACCOUNT_ERROR,
   IDENTITY_ERROR,
+  VERIFY_REASON_CODES,
   buildEmployeePreview,
-  findStrictEmployee,
+  diagnoseEmployeeIdentity,
   hasDuplicateAccount,
   hashAuditValue,
   normalizeDigits,
+  normalizeEgyptianPhone,
   randomToken,
 } from "../_lib/registrationCore.js";
 
@@ -41,19 +43,33 @@ async function readBody(req) {
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
-  if (req.method !== "POST") return res.status(405).json({ success: false, error: IDENTITY_ERROR });
+  res.setHeader("X-Auth-Flow-Version", "22G.2");
+  const verificationCorrelationId = `vrf_${randomToken(8)}`;
+  if (req.method !== "POST") {
+    return res.status(405).json({ success: false, error: IDENTITY_ERROR, correlationId: verificationCorrelationId });
+  }
 
   try {
     const body = await readBody(req);
-    if (isRateLimited(req, body)) return res.status(429).json({ success: false, error: IDENTITY_ERROR });
+    if (isRateLimited(req, body)) {
+      console.warn("employee_verification_failed", {
+        verificationCorrelationId,
+        reasonCode: VERIFY_REASON_CODES.rateLimited,
+      });
+      return res.status(429).json({ success: false, error: IDENTITY_ERROR, correlationId: verificationCorrelationId });
+    }
 
     const identity = {
       nationalId: normalizeDigits(body.nationalId),
       employeeCode: normalizeDigits(body.employeeCode || body.jobCode),
-      phone: normalizeDigits(body.phone),
+      phone: normalizeEgyptianPhone(body.phone),
     };
     if (!identity.nationalId || !identity.employeeCode || !identity.phone) {
-      return res.status(400).json({ success: false, error: IDENTITY_ERROR });
+      console.warn("employee_verification_failed", {
+        verificationCorrelationId,
+        reasonCode: VERIFY_REASON_CODES.invalidInput,
+      });
+      return res.status(400).json({ success: false, error: IDENTITY_ERROR, correlationId: verificationCorrelationId });
     }
 
     const { db } = getAdminContext();
@@ -63,21 +79,41 @@ export default async function handler(req, res) {
       readCollection(db, "registration_requests"),
     ]);
 
-    const { employee } = findStrictEmployee(employees, identity);
+    const diagnosis = diagnoseEmployeeIdentity(employees, identity);
+    const { employee } = diagnosis;
     if (!employee) {
       await db.collection("audit_logs").add({
         action: "registration.identity_failed",
         riskLevel: "medium",
-        details: { identityHash: hashAuditValue(Object.values(identity).join(":")) },
+        details: {
+          verificationCorrelationId,
+          reasonCode: diagnosis.reasonCode,
+          identityHash: hashAuditValue(Object.values(identity).join(":")),
+        },
         createdAt: FieldValue.serverTimestamp(),
         createdAtIso: new Date().toISOString(),
       });
-      return res.status(401).json({ success: false, error: IDENTITY_ERROR });
+      console.warn("employee_verification_failed", {
+        verificationCorrelationId,
+        reasonCode: diagnosis.reasonCode,
+        employeeCandidateCount: diagnosis.employeeCandidateCount,
+        nationalIdMatch: diagnosis.nationalIdMatch,
+        jobIdMatch: diagnosis.jobIdMatch,
+        phoneMatch: diagnosis.phoneMatch,
+        phone2Match: diagnosis.phone2Match,
+      });
+      return res.status(401).json({ success: false, error: IDENTITY_ERROR, correlationId: verificationCorrelationId });
     }
 
     const duplicate = hasDuplicateAccount(accounts, employee, requestsSnapshot);
     if (duplicate.duplicate) {
-      return res.status(409).json({ success: false, error: DUPLICATE_ACCOUNT_ERROR });
+      const reasonCode = duplicate.account ? VERIFY_REASON_CODES.duplicateAccount : VERIFY_REASON_CODES.pendingRequestExists;
+      console.warn("employee_verification_blocked", {
+        verificationCorrelationId,
+        reasonCode,
+        employeeCandidateCount: 1,
+      });
+      return res.status(409).json({ success: false, error: DUPLICATE_ACCOUNT_ERROR, correlationId: verificationCorrelationId });
     }
 
     const verificationToken = randomToken(24);
@@ -99,7 +135,7 @@ export default async function handler(req, res) {
       action: "registration.identity_verified",
       targetId: requestRef.id,
       riskLevel: "low",
-      details: { employeeId: preview.employeeId, employeeCode: preview.employeeCode },
+      details: { verificationCorrelationId, employeeId: preview.employeeId, employeeCode: preview.employeeCode },
       createdAt: FieldValue.serverTimestamp(),
       createdAtIso: new Date().toISOString(),
     });
@@ -109,10 +145,15 @@ export default async function handler(req, res) {
       verificationId: requestRef.id,
       verificationToken,
       expiresAt,
+      correlationId: verificationCorrelationId,
       employee: preview,
     });
   } catch (error) {
-    console.error("verify_employee_failed", { reason: error?.message || "unknown" });
-    return res.status(500).json({ success: false, error: IDENTITY_ERROR });
+    console.error("verify_employee_failed", {
+      verificationCorrelationId,
+      reasonCode: VERIFY_REASON_CODES.internalError,
+      reason: error?.message || "unknown",
+    });
+    return res.status(500).json({ success: false, error: IDENTITY_ERROR, correlationId: verificationCorrelationId });
   }
 }

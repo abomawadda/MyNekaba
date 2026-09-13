@@ -15,7 +15,9 @@ async function postJson(url, payload, options = {}) {
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok || body?.success === false) {
-    throw new Error(body?.error || body?.message || "تعذر تنفيذ العملية. حاول مرة أخرى.");
+    const message = body?.error || body?.message || "تعذر تنفيذ العملية. حاول مرة أخرى.";
+    const reference = body?.correlationId ? `\nرقم مرجعي للمحاولة: ${body.correlationId}` : "";
+    throw new Error(`${message}${reference}`);
   }
   return body;
 }
