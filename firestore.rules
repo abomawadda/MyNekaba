@@ -1,0 +1,160 @@
+// تحذير: لا تنشر هذه القواعد قبل اكتمال ربط كل الحسابات بـ Firebase Auth
+// (حقل firebaseUid) — النشر المبكر يوقف التطبيق لأنه يعمل حالياً بدون مصادقة Firebase.
+// النشر لاحقاً عبر: firebase deploy --only firestore:rules,storage
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function accountDoc() {
+      return get(/databases/$(database)/documents/user_accounts/$(request.auth.uid)).data;
+    }
+
+    function myRole() {
+      return isSignedIn() ? accountDoc().role : 'none';
+    }
+
+    function isActive() {
+      return isSignedIn() && accountDoc().accountStatus == 'active';
+    }
+
+    function isAdmin() {
+      return isActive() && myRole() == 'admin';
+    }
+
+    function isTreasurer() {
+      return isActive() && (myRole() == 'admin' || myRole() == 'treasurer');
+    }
+
+    function isAuditor() {
+      return isActive() && (myRole() == 'admin' || myRole() == 'treasurer' || myRole() == 'auditor');
+    }
+
+    function isStaff() {
+      return isActive() && (myRole() in ['admin', 'treasurer', 'dataEntry', 'auditor']);
+    }
+
+    match /user_accounts/{uid} {
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+      allow create: if isAdmin();
+      allow update: if isAdmin() || (isSignedIn() && request.auth.uid == uid
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'accountStatus', 'permissionOverrides']));
+      allow delete: if isAdmin();
+    }
+
+    match /auth_sessions/{sid} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn();
+      allow update: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    match /audit_logs/{id} {
+      allow read: if isAuditor();
+      allow create: if isStaff();
+      allow update, delete: if false;
+    }
+
+    match /employees/{id} {
+      allow read: if isStaff();
+      allow create, update: if isAdmin() || myRole() == 'dataEntry' || isTreasurer();
+      allow delete: if isAdmin();
+    }
+
+    match /member_movements/{id} {
+      allow read: if isStaff();
+      allow create: if isStaff();
+      allow update, delete: if isAdmin() || isTreasurer();
+    }
+
+    match /member_benefits/{id} {
+      allow read: if isStaff();
+      allow create, update: if isStaff();
+      allow delete: if isAdmin() || isTreasurer();
+    }
+
+    match /transactions/{id} {
+      allow read: if isAuditor() || isTreasurer();
+      allow create: if isTreasurer() || myRole() == 'dataEntry';
+      allow update: if isTreasurer();
+      allow delete: if isAdmin();
+    }
+
+    match /issued_checks/{id} {
+      allow read: if isAuditor() || isTreasurer();
+      allow create: if isTreasurer() || myRole() == 'dataEntry';
+      allow update: if isTreasurer();
+      allow delete: if isAdmin();
+    }
+
+    match /checkbooks/{id} {
+      allow read: if isAuditor() || isTreasurer();
+      allow create: if isTreasurer() || myRole() == 'dataEntry';
+      allow update: if isTreasurer();
+      allow delete: if isAdmin();
+    }
+
+    match /events/{id} {
+      allow read: if isStaff();
+      allow create, update: if isAdmin() || isTreasurer();
+      allow delete: if isAdmin();
+    }
+
+    match /event_bookings/{id} {
+      allow read: if isStaff();
+      allow create, update: if isStaff();
+      allow delete: if isAdmin() || isTreasurer();
+    }
+
+    match /board_terms/{id} {
+      allow read: if isStaff();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /board_memberships/{id} {
+      allow read: if isStaff();
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /board_candidates/{id} {
+      allow read: if isStaff();
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /board_movements/{id} {
+      allow read: if isStaff();
+      allow create: if isStaff();
+      allow update, delete: if false;
+    }
+
+    match /board_benefits/{id} {
+      allow read: if isStaff();
+      allow create, update: if isAdmin() || isTreasurer();
+      allow delete: if isAdmin();
+    }
+
+    match /board_meetings/{id} {
+      allow read: if isStaff();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /settings/{id} {
+      allow read: if isStaff();
+      allow write: if isAdmin();
+    }
+
+    match /settings/dropdowns/{id} {
+      allow read: if isStaff();
+      allow write: if isAdmin() || isTreasurer();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
