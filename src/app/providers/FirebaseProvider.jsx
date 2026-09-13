@@ -29,14 +29,6 @@ function getFirebaseConfig() {
   const requiredKeys = Object.keys(ENV_CONFIG);
   const missingKeys = requiredKeys.filter((key) => !ENV_CONFIG[key]);
 
-  if (import.meta.env.PROD && missingKeys.length > 0) {
-    throw new Error(
-      `Missing Firebase environment configuration: ${missingKeys
-        .map((key) => `VITE_FIREBASE_${key === "messagingSenderId" ? "SENDER_ID" : key.replace(/[A-Z]/g, (letter) => `_${letter}`).toUpperCase()}`)
-        .join(", ")}`
-    );
-  }
-
   return missingKeys.length > 0
     ? { ...DEV_FALLBACK_CONFIG, ...Object.fromEntries(Object.entries(ENV_CONFIG).filter(([, value]) => value)) }
     : ENV_CONFIG;
