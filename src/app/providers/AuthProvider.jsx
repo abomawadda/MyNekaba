@@ -591,6 +591,14 @@ export function AuthProvider({ children }) {
             });
             throw new Error(invalidCredentialsMessage);
           }
+          if (!fb.emailVerified && !account.emailVerificationOverride) {
+            await logAuditEvent("auth.firebase_email_unverified_blocked", {
+              userId: account.id,
+              riskLevel: "medium",
+              page: "/login",
+            });
+            throw new Error("تم اعتماد حسابك إداريا، ولكن يجب التحقق من البريد الإلكتروني قبل الدخول.");
+          }
           clearFailedAttempts(normalizedIdentifier);
           const nextUser = buildUserFromAccount(account);
           const nextSession = await persistAuthenticatedUser(nextUser);

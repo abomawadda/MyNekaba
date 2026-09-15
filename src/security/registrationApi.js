@@ -57,3 +57,24 @@ export async function rejectPendingAccount(accountId, reason = "") {
     { headers: { Authorization: `Bearer ${token}` } }
   );
 }
+
+export async function fetchSecurityAccounts() {
+  const token = await getFirebaseIdToken(true);
+  const response = await fetch("/api/admin/accounts/list", {
+    method: "GET",
+    credentials: "same-origin",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body?.success === false) {
+    throw new Error(body?.error || "تعذر تحميل مركز الأمان.");
+  }
+  return body;
+}
+
+export async function runSecurityAccountAction(payload) {
+  const token = await getFirebaseIdToken(true);
+  return postJson("/api/admin/accounts/action", payload, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}

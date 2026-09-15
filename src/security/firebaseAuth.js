@@ -33,7 +33,8 @@ const translateFirebaseError = (error) => {
 export async function firebaseSignIn(email, password) {
   try {
     const credential = await signInWithEmailAndPassword(auth, String(email).trim(), password);
-    return { uid: credential.user.uid, email: credential.user.email || "" };
+    await credential.user.reload();
+    return { uid: credential.user.uid, email: credential.user.email || "", emailVerified: Boolean(credential.user.emailVerified) };
   } catch (error) {
     throw new Error(translateFirebaseError(error));
   }
@@ -55,6 +56,7 @@ export async function firebaseSignInWithCustomToken(customToken) {
     return {
       uid: credential.user.uid,
       email: credential.user.email || "",
+      emailVerified: Boolean(credential.user.emailVerified),
       claims: tokenResult.claims || {},
     };
   } catch (error) {
