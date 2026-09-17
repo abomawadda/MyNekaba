@@ -131,7 +131,19 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true });
     }
 
-    if (action === "resendVerification") {
+    if (action === "clearLoginLockout") {
+      await accountRef.update({
+        failedLoginCount: 0,
+        lockedUntil: null,
+        lastFailedLoginAt: null,
+        loginLockClearedBy: actor.id,
+        ...nowPayload("loginLockCleared"),
+      });
+      await audit(context.db, actor, "security.login_lockout_cleared", account.id, {}, "medium");
+      return res.status(200).json({ success: true });
+    }
+
+    if (action === "createManualVerificationLink" || action === "resendVerification") {
       if (!account.firebaseUid || !account.email) return res.status(409).json({ success: false, error: "missing_firebase_account" });
       const cooldownMs = 60 * 1000;
       const lastAt = new Date(account.lastVerificationLinkCreatedAtIso || 0).getTime();

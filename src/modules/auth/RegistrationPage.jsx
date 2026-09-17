@@ -17,7 +17,9 @@ import {
 import clsx from "clsx";
 import { validatePasswordPolicy } from "../../security/passwordPolicy";
 import {
+  clearRegistrationFirebaseSession,
   completeEmployeeRegistration,
+  resendCurrentUserVerificationEmail,
   verifyEmployeeRegistrationIdentity,
 } from "../../security/registrationApi";
 
@@ -100,6 +102,8 @@ export default function RegistrationPage() {
   const [emailMode, setEmailMode] = useState("new");
   const [credentials, setCredentials] = useState({ email: "", password: "", confirmPassword: "" });
   const [created, setCreated] = useState(null);
+  const [resendCooldownUntil, setResendCooldownUntil] = useState(0);
+  const [resendMessage, setResendMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [touched, setTouched] = useState({});
@@ -169,13 +173,35 @@ export default function RegistrationPage() {
         confirmPassword: credentials.confirmPassword,
       });
       setCreated(result);
+      setResendCooldownUntil(Date.now() + 60 * 1000);
+      setResendMessage("تم إرسال رسالة تحقق إلى بريدك الإلكتروني. تحقق من الوارد وJunk أو Quarantine.");
       setStep(4);
-      window.setTimeout(() => navigate("/login", { replace: true }), 4000);
     } catch (submitError) {
       setError(friendlyError(submitError, "تعذر إنشاء الحساب."));
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const resendVerification = async () => {
+    if (submitting || Date.now() < resendCooldownUntil) return;
+    setSubmitting(true);
+    setError("");
+    setResendMessage("");
+    try {
+      await resendCurrentUserVerificationEmail();
+      setResendCooldownUntil(Date.now() + 60 * 1000);
+      setResendMessage("تم إرسال رسالة تحقق جديدة. إذا لم تظهر، تحقق من Junk أو Quarantine.");
+    } catch (submitError) {
+      setError(friendlyError(submitError, "تعذر إعادة إرسال رسالة التحقق."));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const goToLogin = async () => {
+    await clearRegistrationFirebaseSession();
+    navigate("/login", { replace: true });
   };
 
   return (
@@ -280,11 +306,27 @@ export default function RegistrationPage() {
             )}
 
             {step === 4 && (
-              <div className="py-4 text-center">
+              <div className="space-y-4 py-4 text-center">
                 <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-600"><CheckCircle2 size={30} /></div>
-                <h2 className="mt-4 text-lg font-black text-slate-900">تم إنشاء الحساب بنجاح</h2>
+                <h2 className="mt-4 text-lg font-black text-slate-900">تم إنشاء حسابك بنجاح</h2>
                 {created?.username && <p className="mt-2 text-xs font-bold text-slate-600">اسم المستخدم: <span dir="ltr" className="text-slate-900">{created.username}</span></p>}
-                <p className="mt-2 text-xs font-semibold leading-6 text-slate-500">تم إرسال رسالة تحقق إلى البريد. بعد التحقق سيظل الحساب بانتظار اعتماد الإدارة قبل الدخول.</p>
+                <p className="mt-2 text-xs font-semibold leading-6 text-slate-500">تم إرسال رسالة تحقق إلى بريدك الإلكتروني. بعد التحقق سيظل الحساب بانتظار اعتماد الإدارة قبل الدخول.</p>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-right text-xs font-bold leading-6 text-slate-600">
+                  <p>✓ تم إنشاء الحساب</p>
+                  <p>○ التحقق من البريد الإلكتروني</p>
+                  <p>○ انتظار اعتماد الإدارة</p>
+                  <p>○ جاهز لتسجيل الدخول</p>
+                </div>
+                {resendMessage && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-bold leading-5 text-emerald-700">{resendMessage}</div>}
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <button type="button" onClick={resendVerification} disabled={submitting || Date.now() < resendCooldownUntil} className="flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">
+                    {submitting && <LoaderCircle size={18} className="animate-spin" />}
+                    إعادة إرسال رسالة التحقق
+                  </button>
+                  <button type="button" onClick={goToLogin} className="min-h-12 rounded-2xl bg-brand-600 px-4 text-sm font-black text-white hover:bg-brand-700">
+                    العودة لتسجيل الدخول
+                  </button>
+                </div>
               </div>
             )}
 

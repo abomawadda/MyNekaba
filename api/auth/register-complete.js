@@ -117,6 +117,8 @@ export default async function handler(req, res) {
       fullName: employee.name || employee.fullName || "",
       displayName: employee.name || employee.fullName || "",
       role: "member",
+      authMode: "firebase-native",
+      credentialAuthority: "firebase",
       title: "عضو",
       membershipStatus: employee.membershipStatus || "عضو جمعية عمومية",
       accountStatus: "pending_approval",

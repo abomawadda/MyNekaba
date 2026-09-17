@@ -36,9 +36,25 @@ export function getAccountIdentityMigrationState(account = {}, currentUid = getC
     : IDENTITY_MIGRATION_STATE.mismatch;
 }
 
-export function getAuthModeForAccount(account = {}, currentUid = getCurrentFirebaseUid()) {
-  const state = getAccountIdentityMigrationState(account, currentUid);
-  return state === IDENTITY_MIGRATION_STATE.linked ? "firebase-linked" : "legacy";
+export function getAuthModeForAccount(account = {}) {
+  const accountUid = getAccountFirebaseUid(account);
+  if (!accountUid) return "legacy";
+
+  if (account.authMode === "firebase-native" || account.credentialAuthority === "firebase") {
+    return "firebase-native";
+  }
+
+  if (
+    account.registrationState === "email_pending_verification" ||
+    account.registrationState === "pending_approval" ||
+    (account.role === "member" && accountUid && account.email && !account.passwordSalt)
+  ) {
+    return "firebase-native";
+  }
+
+  if (account.passwordHash || account.passwordSalt) return "jit-linked";
+
+  return "firebase-native";
 }
 
 function normalizeIdentifier(value = "") {

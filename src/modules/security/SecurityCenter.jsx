@@ -287,7 +287,8 @@ export default function SecurityCenter() {
     return runAction({ action: "overrideEmailVerification", accountId: account.id, reason }, "تم تفعيل التجاوز الإداري.");
   };
   const removeOverride = (account) => runAction({ action: "removeEmailVerificationOverride", accountId: account.id }, "تم إلغاء التجاوز الإداري.");
-  const resendVerification = (account) => runAction({ action: "resendVerification", accountId: account.id }, "تم إنشاء رابط تحقق جديد. انسخه من اللوحة.");
+  const createManualVerificationLink = (account) => runAction({ action: "createManualVerificationLink", accountId: account.id }, "تم إنشاء رابط تحقق يدوي. انسخه من اللوحة؛ هذا الإجراء لا يرسل بريدا.");
+  const clearLoginLockout = (account) => runAction({ action: "clearLoginLockout", accountId: account.id }, "تم رفع القفل المؤقت عن الحساب.");
   const revokeSessions = (account) => runAction({ action: "revokeSessions", accountId: account.id }, "تم إنهاء الجلسات النشطة.");
   const changeRole = (account, role) => {
     if (["admin", "treasurer"].includes(role) && !window.confirm("هذا الدور عالي الصلاحية. هل تريد المتابعة؟")) return null;
@@ -556,7 +557,10 @@ export default function SecurityCenter() {
               )}
 
               <div className="grid gap-2 md:grid-cols-2">
-                <Action icon={Mail} label="إعادة إنشاء رابط التحقق" onClick={() => resendVerification(selected)} />
+                <Action icon={Mail} label="إنشاء رابط تحقق يدوي" onClick={() => createManualVerificationLink(selected)} />
+                {selected.lockedUntil && new Date(selected.lockedUntil).getTime() > Date.now() && (
+                  <Action icon={Lock} label="رفع القفل المؤقت" tone="amber" onClick={() => clearLoginLockout(selected)} />
+                )}
                 {selected.emailVerificationOverride ? (
                   <Action icon={ShieldAlert} label="إلغاء التجاوز الإداري" tone="amber" onClick={() => removeOverride(selected)} />
                 ) : (

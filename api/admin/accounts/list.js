@@ -15,7 +15,16 @@ function maskId(value = "") {
 }
 
 function authMode(account = {}) {
-  if (account.firebaseUid && account.passwordHash) return "jit-linked";
+  if (!account.firebaseUid) return "legacy";
+  if (account.authMode === "firebase-native" || account.credentialAuthority === "firebase") return "firebase-native";
+  if (
+    account.registrationState === "email_pending_verification" ||
+    account.registrationState === "pending_approval" ||
+    (account.role === "member" && account.email && !account.passwordSalt)
+  ) {
+    return "firebase-native";
+  }
+  if (account.passwordHash || account.passwordSalt) return "jit-linked";
   if (account.firebaseUid) return "firebase-native";
   return "legacy";
 }
@@ -91,6 +100,8 @@ export default async function handler(req, res) {
           emailVerificationOverride: Boolean(account.emailVerificationOverride),
           emailVerificationOverrideReason: account.emailVerificationOverrideReason || "",
           emailVerificationOverrideAt: toIso(account.emailVerificationOverrideAt) || account.emailVerificationOverrideAtIso || "",
+          failedLoginCount: Number(account.failedLoginCount || 0),
+          lockedUntil: toIso(account.lockedUntil) || account.lockedUntilIso || account.lockedUntil || "",
           permissionOverrides: Array.isArray(account.permissionOverrides) ? account.permissionOverrides : [],
           createdAt: firebase?.createdAt || toIso(account.createdAt) || account.createdAtIso || "",
           approvedAt: toIso(account.approvedAt) || account.approvedAtIso || "",

@@ -31,9 +31,16 @@ export async function completeEmployeeRegistration(payload) {
   if (result.customToken) {
     await firebaseSignInWithCustomToken(result.customToken);
     await firebaseSendCurrentUserEmailVerification();
-    await firebaseSignOut();
   }
   return result.account;
+}
+
+export async function resendCurrentUserVerificationEmail() {
+  await firebaseSendCurrentUserEmailVerification();
+}
+
+export async function clearRegistrationFirebaseSession() {
+  await firebaseSignOut();
 }
 
 export async function requestAccountRecovery(payload) {

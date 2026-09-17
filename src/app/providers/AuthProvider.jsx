@@ -30,7 +30,13 @@ import {
   normalizeRole,
 } from "../../security/permissions";
 import { validatePasswordPolicy } from "../../security/passwordPolicy";
-import { firebaseSignIn, firebaseSignOut, firebaseSignUp } from "../../security/firebaseAuth";
+import {
+  firebaseSendPasswordResetEmail,
+  firebaseSignIn,
+  firebaseSignOut,
+  firebaseSignUp,
+  isConfirmedInvalidCredentialError,
+} from "../../security/firebaseAuth";
 import { establishJitFirebaseSession, JIT_SESSION_STATE } from "../../security/jitSessionBridge";
 import {
   getAccountIdentityMigrationState,
@@ -579,7 +585,11 @@ export function AuthProvider({ children }) {
         throw new Error("الحساب غير مفعل أو موقوف حاليا.");
       }
 
-      if (account.firebaseUid && account.email && !account.passwordHash) {
+      const accountAuthMode = getAuthModeForAccount(account, "");
+      const isFirebaseNativeAccount =
+        accountAuthMode === "firebase-native" || (account.firebaseUid && account.email && !account.passwordSalt);
+
+      if (isFirebaseNativeAccount) {
         try {
           const fb = await firebaseSignIn(account.email, password);
           if (fb.uid !== account.firebaseUid) {
@@ -611,14 +621,29 @@ export function AuthProvider({ children }) {
           await syncSessionIntegrity(nextUser, nextSession);
           return nextUser;
         } catch (error) {
+          if (!isConfirmedInvalidCredentialError(error)) {
+            await logAuditEvent("auth.login_denied", {
+              identifier: normalizedIdentifier,
+              userId: account.id,
+              reason: error?.reason || error?.message || "firebase_native_denied",
+              riskLevel: "medium",
+            });
+            throw new Error(error?.message || "تعذر تسجيل الدخول. حاول مرة أخرى.");
+          }
+
           const attempt = recordFailedAttempt(normalizedIdentifier);
           await logAuditEvent("auth.login_failed", {
             identifier: normalizedIdentifier,
             userId: account.id,
+            reason: "INVALID_CREDENTIAL",
             failedAttempts: attempt.count,
             riskLevel: attempt.lockedUntil ? "high" : "medium",
           });
-          throw new Error(error?.message || invalidCredentialsMessage);
+          throw new Error(
+            attempt.lockedUntil
+              ? `تم إيقاف محاولات تسجيل الدخول مؤقتا لمدة ${LOGIN_LOCK_MINUTES} دقيقة.`
+              : invalidCredentialsMessage
+          );
         }
       }
 
@@ -895,6 +920,28 @@ export function AuthProvider({ children }) {
   );
 
   const requestPasswordReset = useCallback(async (payload) => {
+    const identifier = normalizeLoginIdentifier(payload?.identifier || payload?.email || "");
+    const looksLikeEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier);
+
+    if (looksLikeEmail) {
+      try {
+        await firebaseSendPasswordResetEmail(identifier);
+        await logAuditEvent("auth.password_reset_requested", {
+          identifierHash: await hashValue(identifier),
+          delivery: "firebase_email",
+          riskLevel: "medium",
+        });
+      } catch (error) {
+        await logAuditEvent("auth.password_reset_requested", {
+          identifierHash: await hashValue(identifier),
+          delivery: "firebase_email",
+          reason: error?.reason || "RESET_DELIVERY_ERROR",
+          riskLevel: "medium",
+        });
+      }
+      return;
+    }
+
     await requestAccountRecovery(payload);
   }, []);
 

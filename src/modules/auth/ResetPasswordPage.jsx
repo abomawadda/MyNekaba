@@ -1,23 +1,22 @@
 import React, { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import {
   AlertCircle,
   CheckCircle2,
   Eye,
   EyeOff,
-  Hash,
-  IdCard,
   LoaderCircle,
   LockKeyhole,
-  Phone,
+  Mail,
   ShieldCheck,
 } from "lucide-react";
 import clsx from "clsx";
 import { useAuth } from "../../app/providers/AuthProvider";
 import { validatePasswordPolicy } from "../../security/passwordPolicy";
 
-const digits = (value = "") => String(value).replace(/\D/g, "");
 const text = (value = "") => String(value).trim();
+const RESET_GENERIC =
+  "إذا كان الحساب صالحا ومرتبطا بوسيلة استرداد، سيتم إرسال تعليمات إعادة تعيين كلمة المرور.";
 
 function friendlyError(error, fallback) {
   const raw = String(error?.message || error?.code || error || "");
@@ -85,44 +84,33 @@ export function ChangePasswordCard({ onDone }) {
       <InputField label="تأكيد كلمة المرور الجديدة" icon={LockKeyhole} type="password" value={form.confirmPassword} onChange={(event) => setForm((prev) => ({ ...prev, confirmPassword: event.target.value }))} autoComplete="new-password" error={mismatch ? "كلمتا المرور غير متطابقتين." : ""} />
       {error && <div className="flex items-start gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-700"><AlertCircle size={16} className="shrink-0" />{error}</div>}
       {success && <div className="flex items-start gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-bold text-emerald-700"><CheckCircle2 size={16} className="shrink-0" />{success}</div>}
-      <button type="submit" disabled={loading || !form.currentPassword || !check.valid || mismatch || !form.confirmPassword} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 text-sm font-black text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50">{loading && <LoaderCircle size={18} className="animate-spin" />}{loading ? "جار الحفظ..." : "تغيير كلمة المرور"}</button>
+      <button type="submit" disabled={loading || !form.currentPassword || !check.valid || mismatch || !form.confirmPassword} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 text-sm font-black text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50">{loading && <LoaderCircle size={18} className="animate-spin" />}{loading ? "جاري الحفظ..." : "تغيير كلمة المرور"}</button>
     </form>
   );
 }
 
 export default function ResetPasswordPage() {
-  const navigate = useNavigate();
   const { requestPasswordReset } = useAuth();
-  const [form, setForm] = useState({ nationalId: "", jobCode: "", phone: "" });
+  const [identifier, setIdentifier] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [touched, setTouched] = useState({});
+  const [touched, setTouched] = useState(false);
 
-  const errors = useMemo(() => ({
-    nationalId: digits(form.nationalId).length !== 14 ? "الرقم القومي يجب أن يتكون من 14 رقما." : "",
-    jobCode: !text(form.jobCode) ? "أدخل كود الموظف." : "",
-    phone: !/^01\d{9}$/.test(digits(form.phone)) ? "أدخل رقم الهاتف المسجل بصورة صحيحة." : "",
-  }), [form]);
-
-  const invalid = Object.values(errors).some(Boolean);
+  const identifierError = useMemo(() => (!text(identifier) ? "أدخل البريد الإلكتروني أو المعرّف المسجل." : ""), [identifier]);
+  const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text(identifier).toLowerCase());
 
   const onSubmit = async (event) => {
     event.preventDefault();
-    setTouched({ nationalId: true, jobCode: true, phone: true });
+    setTouched(true);
     setError("");
     setSuccess("");
-    if (invalid || loading) return;
+    if (identifierError || loading) return;
 
     setLoading(true);
     try {
-      await requestPasswordReset({
-        nationalId: digits(form.nationalId),
-        jobCode: text(form.jobCode),
-        phone: digits(form.phone),
-      });
-      setSuccess("إذا كانت البيانات مرتبطة بحساب صالح، سيتم تسجيل طلب الاسترداد ومراجعته من الإدارة.");
-      window.setTimeout(() => navigate("/login", { replace: true }), 2200);
+      await requestPasswordReset({ identifier: text(identifier).toLowerCase() });
+      setSuccess(RESET_GENERIC);
     } catch (submitError) {
       setError(friendlyError(submitError, "تعذر تسجيل طلب الاسترداد."));
     } finally {
@@ -137,19 +125,17 @@ export default function ResetPasswordPage() {
         <div className="overflow-hidden rounded-[28px] border border-white/80 bg-white/95 shadow-[0_26px_80px_rgba(15,23,42,0.12)]">
           <header className="border-b border-slate-100 bg-gradient-to-b from-brand-50/80 to-white px-6 pb-5 pt-7 sm:px-8">
             <BrandLockup />
-            <div className="mt-4 text-center"><p className="text-[11px] font-black text-brand-700">استرداد آمن للحساب</p><h1 className="mt-1 text-xl font-black text-slate-950">طلب استرداد الحساب</h1><p className="mt-2 text-xs font-semibold leading-6 text-slate-500">لن يتم تغيير كلمة المرور مباشرة. سيتم إنشاء طلب مراجعة آمن لدى الإدارة.</p></div>
+            <div className="mt-4 text-center"><p className="text-[11px] font-black text-brand-700">استرداد آمن للحساب</p><h1 className="mt-1 text-xl font-black text-slate-950">إعادة تعيين كلمة المرور</h1><p className="mt-2 text-xs font-semibold leading-6 text-slate-500">أدخل بريد الحساب لإرسال رسالة إعادة تعيين من Firebase. للمعرّفات غير البريدية سيتم تسجيل طلب مراجعة آمن.</p></div>
           </header>
 
           <div className="px-6 py-6 sm:px-8">
-            <div className="mb-5 flex items-center gap-2 rounded-2xl bg-slate-50 px-3.5 py-3 text-[11px] font-bold text-slate-500"><ShieldCheck size={16} className="shrink-0 text-brand-600" />هذه البيانات تستخدم لتسجيل طلب مراجعة ولا تمنح صلاحية إعادة تعيين مباشرة.</div>
+            <div className="mb-5 flex items-start gap-2 rounded-2xl bg-slate-50 px-3.5 py-3 text-[11px] font-bold leading-5 text-slate-500"><ShieldCheck size={16} className="mt-0.5 shrink-0 text-brand-600" />لن نعرض ما إذا كان الحساب موجودا أم لا. تحقق من الوارد وJunk أو Quarantine إذا كان البريد مؤسسيا.</div>
             <form className="space-y-4" onSubmit={onSubmit} noValidate>
-              <InputField label="الرقم القومي" icon={IdCard} value={form.nationalId} onChange={(event) => setForm((prev) => ({ ...prev, nationalId: event.target.value }))} onBlur={() => setTouched((prev) => ({ ...prev, nationalId: true }))} error={touched.nationalId ? errors.nationalId : ""} inputMode="numeric" maxLength={14} autoComplete="off" dir="ltr" />
-              <InputField label="كود الموظف" icon={Hash} value={form.jobCode} onChange={(event) => setForm((prev) => ({ ...prev, jobCode: event.target.value }))} onBlur={() => setTouched((prev) => ({ ...prev, jobCode: true }))} error={touched.jobCode ? errors.jobCode : ""} inputMode="numeric" autoComplete="off" dir="ltr" />
-              <InputField label="رقم الهاتف المسجل" icon={Phone} value={form.phone} onChange={(event) => setForm((prev) => ({ ...prev, phone: event.target.value }))} onBlur={() => setTouched((prev) => ({ ...prev, phone: true }))} error={touched.phone ? errors.phone : ""} inputMode="tel" maxLength={11} autoComplete="tel" dir="ltr" />
+              <InputField label="البريد الإلكتروني أو المعرّف" icon={Mail} value={identifier} onChange={(event) => setIdentifier(event.target.value)} onBlur={() => setTouched(true)} error={touched ? identifierError : ""} inputMode={isEmail ? "email" : "text"} autoComplete="email" dir="ltr" />
 
               {error && <div role="alert" className="flex items-start gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold leading-5 text-rose-700"><AlertCircle size={17} className="mt-0.5 shrink-0" />{error}</div>}
               {success && <div className="flex items-start gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-bold leading-5 text-emerald-700"><CheckCircle2 size={17} className="mt-0.5 shrink-0" />{success}</div>}
-              <button type="submit" disabled={loading || invalid} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 text-sm font-black text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50">{loading && <LoaderCircle size={18} className="animate-spin" />}{loading ? "جار تسجيل الطلب..." : "تسجيل طلب استرداد الحساب"}</button>
+              <button type="submit" disabled={loading || Boolean(identifierError)} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 text-sm font-black text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50">{loading && <LoaderCircle size={18} className="animate-spin" />}{loading ? "جاري الإرسال..." : "إرسال تعليمات إعادة التعيين"}</button>
             </form>
 
             <div className="mt-6 border-t border-slate-100 pt-5 text-center"><Link to="/login" className="text-xs font-black text-brand-700 hover:underline">العودة لتسجيل الدخول</Link></div>
