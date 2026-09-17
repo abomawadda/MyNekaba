@@ -23,7 +23,7 @@ import clsx from "clsx";
 import { useT } from "../../app/providers/ThemeProvider";
 import { useAuth } from "../../app/providers/AuthProvider";
 import { ROLE_LABELS, ROLE_OPTIONS } from "../../security/permissions";
-import { fetchSecurityAccounts, runSecurityAccountAction } from "../../security/registrationApi";
+import { fetchSecurityAccounts, runRecoveryAction, runSecurityAccountAction } from "../../security/registrationApi";
 
 const TABS = [
   { id: "accounts", label: "الحسابات", icon: Users },
@@ -51,6 +51,41 @@ const EMAIL_LABELS = {
   not_applicable: "غير مرتبط",
 };
 
+const RECOVERY_STATUS_LABELS = {
+  recovery_pending: "قيد الانتظار",
+  recovery_under_review: "قيد المراجعة",
+  recovery_approved: "تمت الموافقة",
+  recovery_rejected: "مرفوض",
+  recovery_action_required: "بانتظار تنفيذ إجراء الاسترداد",
+  recovery_completed: "مكتمل",
+  recovery_cancelled: "ملغي",
+};
+
+const RECOVERY_EVENT_LABELS = {
+  recoveryRequested: "إنشاء طلب استرداد",
+  startReview: "بدء مراجعة طلب استرداد",
+  approveRecovery: "الموافقة على طلب استرداد",
+  rejectRecovery: "رفض طلب استرداد",
+  sendPasswordReset: "إرسال رابط إعادة تعيين كلمة المرور",
+  markManualFollowUp: "بدء متابعة استرداد يدوية",
+  completeRecovery: "إكمال طلب استرداد",
+  "auth.recovery_request_created": "إنشاء طلب استرداد",
+  "auth.recovery_review_started": "بدء مراجعة طلب استرداد",
+  "auth.recovery_approved": "الموافقة على طلب استرداد",
+  "auth.recovery_rejected": "رفض طلب استرداد",
+  "auth.recovery_reset_sent": "إرسال رابط إعادة تعيين كلمة المرور",
+  "auth.recovery_manual_follow_up_started": "بدء متابعة استرداد يدوية",
+  "auth.recovery_completed": "إكمال طلب استرداد",
+};
+
+const RECOVERY_MODAL_CONFIG = {
+  approveRecovery: { title: "الموافقة على طلب الاسترداد", reasonLabel: "سبب الموافقة", reasonRequired: true, confirmLabel: "تأكيد الموافقة", tone: "teal" },
+  rejectRecovery: { title: "رفض طلب الاسترداد", reasonLabel: "سبب الرفض", reasonRequired: true, confirmLabel: "تأكيد الرفض", tone: "rose" },
+  sendPasswordReset: { title: "إرسال رابط إعادة تعيين كلمة المرور", reasonLabel: "ملاحظة داخلية اختيارية", reasonRequired: false, confirmLabel: "إرسال الطلب الآمن", tone: "teal" },
+  markManualFollowUp: { title: "بدء متابعة إدارية يدوية", reasonLabel: "سبب المتابعة المطلوبة", reasonRequired: true, confirmLabel: "تسجيل المتابعة", tone: "amber" },
+  completeRecovery: { title: "إغلاق الطلب كمكتمل", reasonLabel: "ملاحظة الإكمال الاختيارية", reasonRequired: false, confirmLabel: "تأكيد الإكمال", tone: "teal" },
+};
+
 function formatDate(value) {
   if (!value) return "غير متاح";
   const date = new Date(value);
@@ -59,17 +94,18 @@ function formatDate(value) {
 }
 
 function badgeClass(kind) {
-  if (["active", "verified", "low"].includes(kind)) return "bg-emerald-50 text-emerald-700 border-emerald-200";
-  if (["pending_approval", "unverified", "medium"].includes(kind)) return "bg-amber-50 text-amber-700 border-amber-200";
+  if (["active", "verified", "low", "recovery_completed"].includes(kind)) return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (["pending_approval", "unverified", "medium", "recovery_pending", "recovery_action_required"].includes(kind)) return "bg-amber-50 text-amber-700 border-amber-200";
+  if (["recovery_under_review", "recovery_approved"].includes(kind)) return "bg-sky-50 text-sky-700 border-sky-200";
   if (kind === "overridden") return "bg-violet-50 text-violet-700 border-violet-200";
-  if (["suspended", "deleted", "rejected", "blocked", "high"].includes(kind)) return "bg-rose-50 text-rose-700 border-rose-200";
+  if (["suspended", "deleted", "rejected", "blocked", "high", "recovery_rejected", "recovery_cancelled"].includes(kind)) return "bg-rose-50 text-rose-700 border-rose-200";
   return "bg-slate-50 text-slate-600 border-slate-200";
 }
 
 function Badge({ value, label }) {
   return (
     <span className={clsx("inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-black", badgeClass(value))}>
-      {label || STATUS_LABELS[value] || EMAIL_LABELS[value] || value || "غير متاح"}
+      {label || STATUS_LABELS[value] || EMAIL_LABELS[value] || RECOVERY_STATUS_LABELS[value] || value || "غير متاح"}
     </span>
   );
 }
@@ -193,6 +229,9 @@ export default function SecurityCenter() {
   const [toast, setToast] = useState(null);
   const [activeTab, setActiveTab] = useState("accounts");
   const [selected, setSelected] = useState(null);
+  const [selectedRecovery, setSelectedRecovery] = useState(null);
+  const [recoveryModal, setRecoveryModal] = useState(null);
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
   const [verificationLink, setVerificationLink] = useState("");
   const [filters, setFilters] = useState({ search: "", role: "", status: "", email: "" });
 
@@ -208,6 +247,7 @@ export default function SecurityCenter() {
       const data = await fetchSecurityAccounts();
       setPayload(data);
       setSelected((current) => (current ? data.accounts.find((item) => item.id === current.id) || null : null));
+      setSelectedRecovery((current) => (current ? data.recoveryRequests.find((item) => item.id === current.id) || null : null));
     } catch (loadError) {
       setError(loadError.message || "تعذر تحميل مركز الأمان.");
     } finally {
@@ -293,6 +333,68 @@ export default function SecurityCenter() {
   const changeRole = (account, role) => {
     if (["admin", "treasurer"].includes(role) && !window.confirm("هذا الدور عالي الصلاحية. هل تريد المتابعة؟")) return null;
     return runAction({ action: "changeRole", accountId: account.id, role }, "تم تحديث الدور.");
+  };
+
+  const recoveryErrorMessage = (actionError) => {
+    const messages = {
+      stale_recovery_state: "تغيرت حالة الطلب منذ فتحه. تم تحديث البيانات؛ راجع الحالة الحالية.",
+      invalid_transition: "هذا الإجراء غير متاح في الحالة الحالية للطلب.",
+      reason_required: "يجب إدخال سبب واضح قبل تنفيذ الإجراء.",
+      invalid_auth_mode: "إجراء إعادة التعيين بالبريد غير متوافق مع نمط مصادقة هذا الحساب.",
+      verified_email_required: "يلزم وجود بريد Firebase متحقق لإرسال رابط إعادة التعيين.",
+      other_open_recovery: "يوجد طلب استرداد نشط آخر لهذا الحساب. عالج الطلب المكرر أولًا.",
+      action_in_progress: "يجري تنفيذ إجراء استرداد بالفعل. حدّث البيانات بعد قليل.",
+      reviewer_conflict: "هذا الطلب قيد المراجعة بواسطة مسؤول آخر. حدّث البيانات أو اطلب منه إكمال المراجعة.",
+      reset_rate_limited: "تم إرسال عدد كبير من الطلبات. انتظر قليلًا ثم أعد المحاولة.",
+      password_reset_delivery_unavailable: "خدمة إرسال رابط الاسترداد غير مهيأة على الخادم.",
+      password_reset_delivery_failed: "تعذر إرسال طلب إعادة التعيين حاليًا. لم تُسجل العملية كناجحة.",
+    };
+    return messages[actionError?.code] || "تعذر تنفيذ إجراء الاسترداد. حدّث البيانات وحاول مرة أخرى.";
+  };
+
+  const executeRecoveryAction = async (request, action, fields = {}) => {
+    if (recoveryBusy) return null;
+    setRecoveryBusy(true);
+    try {
+      const result = await runRecoveryAction({
+        recoveryRequestId: request.id,
+        action,
+        expectedStatus: request.status,
+        expectedVersion: request.version,
+        reason: fields.reason || "",
+        notes: fields.notes || "",
+      });
+      const successMessages = {
+        startReview: "تم بدء مراجعة طلب الاسترداد وتعيين المراجع.",
+        approveRecovery: "تمت الموافقة على مراجعة الهوية. لم تتغير كلمة المرور أو صلاحيات الحساب.",
+        rejectRecovery: "تم رفض طلب الاسترداد وتسجيل السبب.",
+        sendPasswordReset: "قبلت Firebase طلب إرسال رابط إعادة التعيين إلى البريد الحالي المتحقق.",
+        markManualFollowUp: "تم تسجيل الحاجة إلى متابعة إدارية متوافقة مع الحساب القديم.",
+        completeRecovery: "تم إغلاق طلب الاسترداد كمكتمل وإنهاء الجلسات النشطة.",
+      };
+      showToast(successMessages[action] || "تم تحديث طلب الاسترداد.");
+      setRecoveryModal(null);
+      await load();
+      return result;
+    } catch (actionError) {
+      showToast(recoveryErrorMessage(actionError), "error");
+      await load();
+      return null;
+    } finally {
+      setRecoveryBusy(false);
+    }
+  };
+
+  const openRecoveryModal = (request, action) => {
+    setRecoveryModal({ request, action, reason: "", notes: "" });
+  };
+
+  const submitRecoveryModal = (event) => {
+    event.preventDefault();
+    if (!recoveryModal) return;
+    const config = RECOVERY_MODAL_CONFIG[recoveryModal.action];
+    if (config?.reasonRequired && !recoveryModal.reason.trim()) return;
+    executeRecoveryAction(recoveryModal.request, recoveryModal.action, recoveryModal);
   };
 
   const currentRows = activeTab === "pending"
@@ -469,12 +571,30 @@ export default function SecurityCenter() {
         )}
 
         {activeTab === "recoveries" && (
-          <div className="p-4">
-            {recoveryRequests.length === 0 ? <p className="py-8 text-center text-sm font-black text-slate-400">لا توجد طلبات استرداد.</p> : recoveryRequests.map((request) => (
-              <div key={request.id} className="mb-2 rounded-2xl border border-slate-200 p-4 text-sm font-bold">
-                <div className="flex justify-between gap-3"><span>{request.status}</span><span>{formatDate(request.createdAtIso)}</span></div>
-                <p className="mt-1 text-xs text-slate-500">Account: {request.accountId || "غير متاح"}</p>
-              </div>
+          <div className="space-y-3 p-4">
+            {loading ? <p className="py-8 text-center text-sm font-black text-slate-400">جاري تحميل طلبات الاسترداد...</p> : recoveryRequests.length === 0 ? <p className="py-8 text-center text-sm font-black text-slate-400">لا توجد طلبات استرداد.</p> : recoveryRequests.map((request) => (
+              <article key={request.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-teal-200 hover:shadow-md">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="min-w-0 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-black text-slate-950">{request.employee?.fullName || "موظف غير محدد"}</h3>
+                      <Badge value={request.status} />
+                      {request.otherOpenRequestCount > 0 && <Badge value="high" label={`يوجد ${request.otherOpenRequestCount} طلب نشط آخر`} />}
+                    </div>
+                    <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs font-bold text-slate-500">
+                      <span>كود الموظف: {request.employee?.employeeCode || "غير متاح"}</span>
+                      <span>مرجع الحساب: {request.account?.reference || "غير متاح"}</span>
+                      <span>نمط الاسترداد: {request.account?.authMode || "غير متاح"}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-x-5 gap-y-1 text-[11px] font-bold text-slate-400">
+                      <span>تاريخ الطلب: {formatDate(request.createdAtIso)}</span>
+                      <span>المراجع: {request.reviewerName || "لم يُعيّن"}</span>
+                      <span>آخر إجراء: {formatDate(request.lastActionAtIso)}</span>
+                    </div>
+                  </div>
+                  <button type="button" onClick={() => setSelectedRecovery(request)} className="shrink-0 rounded-xl bg-teal-600 px-4 py-2.5 text-xs font-black text-white hover:bg-teal-700 focus:outline-none focus:ring-4 focus:ring-teal-500/20">عرض التفاصيل</button>
+                </div>
+              </article>
             ))}
           </div>
         )}
@@ -489,7 +609,7 @@ export default function SecurityCenter() {
                 {auditLogs.map((log) => (
                   <tr key={log.id} className="border-t border-slate-100">
                     <td className="px-4 py-3">{formatDate(log.createdAtIso)}</td>
-                    <td className="px-4 py-3 font-black">{log.action}</td>
+                    <td className="px-4 py-3 font-black">{RECOVERY_EVENT_LABELS[log.action] || log.action}</td>
                     <td className="px-4 py-3">{log.userName || log.userId || "النظام"}</td>
                     <td className="px-4 py-3"><Badge value={log.riskLevel || "low"} label={log.riskLevel || "low"} /></td>
                     <td className="px-4 py-3">{log.targetId || "غير متاح"}</td>
@@ -519,6 +639,105 @@ export default function SecurityCenter() {
           </div>
         )}
       </section>
+
+      {selectedRecovery && (
+        <aside className="fixed inset-0 z-[4550] bg-slate-950/35 p-3 backdrop-blur-sm sm:p-4" onClick={() => setSelectedRecovery(null)}>
+          <div className="mr-auto h-full w-full max-w-3xl overflow-y-auto rounded-3xl bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white/95 p-5 backdrop-blur">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-lg font-black text-slate-950">تفاصيل طلب الاسترداد</h2>
+                  <Badge value={selectedRecovery.status} />
+                </div>
+                <p className="mt-1 text-xs font-bold text-slate-400">مرجع الطلب: {selectedRecovery.requestReference}</p>
+              </div>
+              <button aria-label="إغلاق" onClick={() => setSelectedRecovery(null)} className="rounded-xl bg-slate-100 p-2 text-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-500/30"><X size={18} /></button>
+            </div>
+
+            <div className="space-y-5 p-5">
+              {selectedRecovery.otherOpenRequestCount > 0 && (
+                <div className="flex items-start gap-2 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-xs font-black leading-6 text-rose-800">
+                  <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+                  يوجد طلب استرداد نشط آخر لهذا الحساب. يمنع الخادم تنفيذ إجراء استرداد متزامن حتى معالجة الطلب الآخر.
+                </div>
+              )}
+
+              <section>
+                <h3 className="mb-3 text-sm font-black text-slate-900">ملخص الطلب</h3>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <Info label="تاريخ الإنشاء" value={formatDate(selectedRecovery.createdAtIso)} />
+                  <Info label="آخر تحديث" value={formatDate(selectedRecovery.updatedAtIso)} />
+                  <Info label="المراجع الحالي" value={selectedRecovery.reviewerName || "لم يُعيّن"} />
+                  <Info label="المصدر" value={selectedRecovery.source === "administrative_recovery_form" ? "نموذج الاسترداد الإداري" : selectedRecovery.source} />
+                  <Info label="مرجع الحساب" value={selectedRecovery.account?.reference} dir="ltr" />
+                  <Info label="الإجراء الحالي" value={selectedRecovery.recoveryActionMethod || "لم يُحدد"} />
+                </div>
+              </section>
+
+              <section>
+                <h3 className="mb-3 text-sm font-black text-slate-900">بيانات الموظف الآمنة</h3>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <Info label="الاسم" value={selectedRecovery.employee?.fullName} />
+                  <Info label="كود الموظف" value={selectedRecovery.employee?.employeeCode} />
+                  <Info label="الوحدة التنظيمية" value={selectedRecovery.employee?.organizationalUnit} />
+                  <Info label="الرقم القومي" value={selectedRecovery.employee?.nationalIdMasked || "مخفي"} dir="ltr" />
+                  <Info label="الهاتف" value={selectedRecovery.employee?.phoneMasked || "مخفي"} dir="ltr" />
+                  <Info label="البريد" value={selectedRecovery.employee?.emailMasked || "مخفي"} dir="ltr" />
+                </div>
+              </section>
+
+              <section>
+                <h3 className="mb-3 text-sm font-black text-slate-900">ربط الحساب</h3>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <Info label="حالة الحساب" value={STATUS_LABELS[selectedRecovery.account?.accountStatus] || selectedRecovery.account?.accountStatus} />
+                  <Info label="نمط المصادقة" value={selectedRecovery.account?.authMode} />
+                  <Info label="الارتباط بـ Firebase" value={selectedRecovery.account?.firebaseLinked ? "مرتبط" : "غير مرتبط"} />
+                  <Info label="حالة تحقق البريد" value={EMAIL_LABELS[selectedRecovery.account?.emailVerificationState] || selectedRecovery.account?.emailVerificationState} />
+                  <Info label="إنشاء الحساب" value={formatDate(selectedRecovery.account?.createdAt)} />
+                  <Info label="آخر دخول Firebase" value={formatDate(selectedRecovery.account?.lastSignInAt)} />
+                  <Info label="آخر نشاط داخل التطبيق" value={formatDate(selectedRecovery.account?.lastAppActivityAt)} />
+                </div>
+              </section>
+
+              <section>
+                <h3 className="mb-3 text-sm font-black text-slate-900">الإجراءات المتاحة</h3>
+                <div className="flex flex-wrap gap-2">
+                  {selectedRecovery.status === "recovery_pending" && <Action icon={Search} label="بدء المراجعة" onClick={() => executeRecoveryAction(selectedRecovery, "startReview")} />}
+                  {["recovery_pending", "recovery_under_review"].includes(selectedRecovery.status) && <Action icon={UserX} label="رفض الطلب" tone="rose" onClick={() => openRecoveryModal(selectedRecovery, "rejectRecovery")} />}
+                  {selectedRecovery.status === "recovery_under_review" && <Action icon={UserCheck} label="الموافقة على الطلب" onClick={() => openRecoveryModal(selectedRecovery, "approveRecovery")} />}
+                  {selectedRecovery.status === "recovery_approved" && selectedRecovery.account?.authMode === "firebase-native" && <Action icon={Mail} label="إرسال إعادة التعيين إلى البريد الحالي" onClick={() => openRecoveryModal(selectedRecovery, "sendPasswordReset")} />}
+                  {selectedRecovery.status === "recovery_approved" && ["legacy", "jit-linked"].includes(selectedRecovery.account?.authMode) && <Action icon={ShieldAlert} label="تسجيل متابعة إدارية متوافقة" tone="amber" onClick={() => openRecoveryModal(selectedRecovery, "markManualFollowUp")} />}
+                  {selectedRecovery.status === "recovery_action_required" && <Action icon={CheckCircle2} label="إغلاق الطلب كمكتمل" onClick={() => openRecoveryModal(selectedRecovery, "completeRecovery")} />}
+                  {["recovery_completed", "recovery_rejected", "recovery_cancelled"].includes(selectedRecovery.status) && <p className="rounded-xl bg-slate-100 px-4 py-3 text-xs font-black text-slate-500">الطلب للقراءة فقط بعد إغلاق دورة المعالجة.</p>}
+                </div>
+                {selectedRecovery.status === "recovery_approved" && (
+                  <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs font-bold leading-6 text-slate-600">
+                    تغيير بريد الاسترداد: <span className="font-black text-amber-700">مؤجل وغير منفذ</span>. يتطلب مسار تحقق مستقل ولا يُسمح بتجاوز تحقق البريد أو تغيير بيانات الاعتماد من هذه الحالة.
+                  </div>
+                )}
+              </section>
+
+              <section>
+                <h3 className="mb-3 text-sm font-black text-slate-900">سجل الحالة</h3>
+                <div className="space-y-3">
+                  {(selectedRecovery.history || []).slice().reverse().map((event, index) => (
+                    <div key={`${event.action}-${event.atIso}-${index}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-black text-slate-900">{RECOVERY_EVENT_LABELS[event.action] || event.action || "تحديث الطلب"}</p>
+                        <span className="text-[11px] font-bold text-slate-400">{formatDate(event.atIso)}</span>
+                      </div>
+                      <p className="mt-1 text-[11px] font-bold text-slate-500">بواسطة: {event.actorName || "النظام"}</p>
+                      {event.from && <p className="mt-1 text-[11px] font-bold text-slate-500">{RECOVERY_STATUS_LABELS[event.from] || event.from} ← {RECOVERY_STATUS_LABELS[event.to] || event.to}</p>}
+                      {event.reason && <p className="mt-2 text-xs font-bold leading-6 text-slate-700">السبب: {event.reason}</p>}
+                      {event.notes && <p className="mt-1 text-xs font-bold leading-6 text-slate-600">ملاحظات: {event.notes}</p>}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
+          </div>
+        </aside>
+      )}
 
       {selected && (
         <aside className="fixed inset-0 z-[4500] bg-slate-950/30 p-4 backdrop-blur-sm" onClick={() => setSelected(null)}>
@@ -578,6 +797,57 @@ export default function SecurityCenter() {
           </div>
         </aside>
       )}
+
+      {recoveryModal && (() => {
+        const config = RECOVERY_MODAL_CONFIG[recoveryModal.action];
+        return (
+          <div className="fixed inset-0 z-[4700] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm" onClick={() => !recoveryBusy && setRecoveryModal(null)}>
+            <form onSubmit={submitRecoveryModal} className="w-full max-w-lg rounded-3xl bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-black text-slate-950">{config?.title}</h3>
+                  <p className="mt-1 text-xs font-bold text-slate-400">مرجع الطلب: {recoveryModal.request.requestReference}</p>
+                </div>
+                <button type="button" aria-label="إغلاق" disabled={recoveryBusy} onClick={() => setRecoveryModal(null)} className="rounded-xl bg-slate-100 p-2 text-slate-600 disabled:opacity-50"><X size={18} /></button>
+              </div>
+
+              {recoveryModal.action === "rejectRecovery" && (
+                <label className="mt-5 block space-y-2">
+                  <span className="text-xs font-black text-slate-600">سبب مقترح</span>
+                  <select value="" onChange={(event) => setRecoveryModal((current) => ({ ...current, reason: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold outline-none focus:border-teal-500">
+                    <option value="">اختر سببًا أو اكتبه أدناه</option>
+                    <option value="البيانات غير كافية">البيانات غير كافية</option>
+                    <option value="تعذر التحقق من الهوية">تعذر التحقق من الهوية</option>
+                    <option value="الطلب مكرر">الطلب مكرر</option>
+                    <option value="الحساب غير مؤهل">الحساب غير مؤهل</option>
+                    <option value="سبب آخر">سبب آخر</option>
+                  </select>
+                </label>
+              )}
+
+              <label className="mt-4 block space-y-2">
+                <span className="text-xs font-black text-slate-600">{config?.reasonLabel}{config?.reasonRequired ? " *" : ""}</span>
+                <textarea value={recoveryModal.reason} onChange={(event) => setRecoveryModal((current) => ({ ...current, reason: event.target.value }))} rows={3} maxLength={300} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-bold outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10" />
+              </label>
+
+              {["approveRecovery", "rejectRecovery", "completeRecovery"].includes(recoveryModal.action) && (
+                <label className="mt-4 block space-y-2">
+                  <span className="text-xs font-black text-slate-600">ملاحظات إضافية اختيارية</span>
+                  <textarea value={recoveryModal.notes} onChange={(event) => setRecoveryModal((current) => ({ ...current, notes: event.target.value }))} rows={2} maxLength={500} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-bold outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10" />
+                </label>
+              )}
+
+              {recoveryModal.action === "sendPasswordReset" && <p className="mt-4 rounded-2xl bg-sky-50 p-3 text-xs font-bold leading-6 text-sky-800">سيطلب الخادم من Firebase إرسال رسالة إلى البريد الحالي المتحقق. لن يظهر الرابط أو رمز إعادة التعيين للإدارة.</p>}
+              {recoveryModal.action === "completeRecovery" && <p className="mt-4 rounded-2xl bg-amber-50 p-3 text-xs font-bold leading-6 text-amber-800">الإكمال متاح فقط بعد إجراء استرداد صالح، وسيتم إنهاء الجلسات النشطة للحساب.</p>}
+
+              <div className="mt-5 flex gap-2">
+                <button type="submit" disabled={recoveryBusy || (config?.reasonRequired && !recoveryModal.reason.trim())} className={clsx("min-h-11 flex-1 rounded-xl px-4 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-50", config?.tone === "rose" ? "bg-rose-600 hover:bg-rose-700" : config?.tone === "amber" ? "bg-amber-600 hover:bg-amber-700" : "bg-teal-600 hover:bg-teal-700")}>{recoveryBusy ? "جاري التنفيذ..." : config?.confirmLabel}</button>
+                <button type="button" disabled={recoveryBusy} onClick={() => setRecoveryModal(null)} className="rounded-xl bg-slate-100 px-4 text-xs font-black text-slate-600 disabled:opacity-50">إلغاء</button>
+              </div>
+            </form>
+          </div>
+        );
+      })()}
 
       <ReportPrint accounts={filteredAccounts} auditLogs={auditLogs} filters={filters} generatedBy={user?.displayName || user?.fullName} />
     </div>

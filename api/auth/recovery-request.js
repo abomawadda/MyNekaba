@@ -7,6 +7,7 @@ import {
   hashAuditValue,
   normalizeDigits,
 } from "../_lib/registrationCore.js";
+import { OPEN_RECOVERY_STATUSES } from "../_lib/recoveryWorkflow.js";
 
 async function readBody(req) {
   if (req.body && typeof req.body === "object") return req.body;
@@ -43,25 +44,40 @@ export default async function handler(req, res) {
       );
       const duplicate = recoveries.find(
         (item) =>
-          ["recovery_pending", "pending"].includes(item.status) &&
+          ([...OPEN_RECOVERY_STATUSES, "pending"].includes(item.status)) &&
           (item.accountId === account?.id || item.employeeId === employee.id)
       );
 
       if (account && !duplicate) {
+        const createdAtIso = new Date().toISOString();
         await db.collection("account_recovery_requests").add({
           status: "recovery_pending",
+          version: 0,
+          source: "administrative_recovery_form",
           accountId: account.id,
           employeeId: String(employee.id),
           employeeCode: identity.employeeCode,
           identityHash: hashAuditValue(Object.values(identity).join(":")),
           createdAt: FieldValue.serverTimestamp(),
-          createdAtIso: new Date().toISOString(),
+          createdAtIso,
+          updatedAt: FieldValue.serverTimestamp(),
+          updatedAtIso: createdAtIso,
+          history: [{
+            action: "recoveryRequested",
+            actorId: "self_service",
+            actorName: "مقدم الطلب",
+            from: "",
+            to: "recovery_pending",
+            reason: "",
+            notes: "",
+            atIso: createdAtIso,
+          }],
         });
       }
     }
 
     await db.collection("audit_logs").add({
-      action: "recovery.requested",
+      action: "auth.recovery_request_created",
       riskLevel: "medium",
       details: { identityHash: hashAuditValue(Object.values(identity).join(":")) },
       createdAt: FieldValue.serverTimestamp(),

@@ -1,5 +1,13 @@
 import { getAdminContext, readCollection } from "../../_lib/firebaseAdmin.js";
 import { requireAdminActor } from "../../_lib/adminAuthorization.js";
+import {
+  OPEN_RECOVERY_STATUSES,
+  maskEmail,
+  maskInternalId,
+  maskNationalId,
+  maskPhone,
+  recoveryAuthMode,
+} from "../../_lib/recoveryWorkflow.js";
 
 function toIso(value) {
   if (!value) return "";
@@ -12,21 +20,6 @@ function maskId(value = "") {
   const text = String(value || "");
   if (text.length <= 10) return text;
   return `${text.slice(0, 6)}...${text.slice(-4)}`;
-}
-
-function authMode(account = {}) {
-  if (!account.firebaseUid) return "legacy";
-  if (account.authMode === "firebase-native" || account.credentialAuthority === "firebase") return "firebase-native";
-  if (
-    account.registrationState === "email_pending_verification" ||
-    account.registrationState === "pending_approval" ||
-    (account.role === "member" && account.email && !account.passwordSalt)
-  ) {
-    return "firebase-native";
-  }
-  if (account.passwordHash || account.passwordSalt) return "jit-linked";
-  if (account.firebaseUid) return "firebase-native";
-  return "legacy";
 }
 
 function latestBy(items = [], predicate, dateKey = "createdAtIso") {
@@ -42,11 +35,12 @@ export default async function handler(req, res) {
   try {
     const context = getAdminContext();
     const actor = await requireAdminActor(req, context);
-    const [accounts, sessions, auditLogs, recoveries] = await Promise.all([
+    const [accounts, sessions, auditLogs, recoveries, employees] = await Promise.all([
       readCollection(context.db, "user_accounts"),
       readCollection(context.db, "auth_sessions"),
       readCollection(context.db, "audit_logs"),
       readCollection(context.db, "account_recovery_requests").catch(() => []),
+      readCollection(context.db, "employees").catch(() => []),
     ]);
 
     const enriched = await Promise.all(
@@ -93,7 +87,7 @@ export default async function handler(req, res) {
           role: account.role || "viewer",
           accountStatus: account.accountStatus || "active",
           registrationState: account.registrationState || "",
-          authMode: authMode(account),
+          authMode: recoveryAuthMode(account),
           firebase,
           firebaseUidMasked: firebase?.uidMasked || "",
           emailVerificationState,
@@ -116,6 +110,75 @@ export default async function handler(req, res) {
       })
     );
 
+    const enrichedById = new Map(enriched.map((account) => [String(account.id), account]));
+    const rawAccountsById = new Map(accounts.map((account) => [String(account.id), account]));
+    const employeesById = new Map(employees.map((employee) => [String(employee.id), employee]));
+    const safeRecoveries = recoveries
+      .sort((a, b) => String(b.createdAtIso || "").localeCompare(String(a.createdAtIso || "")))
+      .slice(0, 100)
+      .map((request) => {
+        const account = enrichedById.get(String(request.accountId || "")) || null;
+        const rawAccount = rawAccountsById.get(String(request.accountId || "")) || {};
+        const employee = employeesById.get(String(request.employeeId || rawAccount.employeeId || "")) || {};
+        const history = Array.isArray(request.history) && request.history.length
+          ? request.history
+          : [{ action: "recoveryRequested", actorName: "مقدم الطلب", from: "", to: request.status || "recovery_pending", atIso: request.createdAtIso || "" }];
+        const openForAccount = recoveries.filter(
+          (candidate) =>
+            candidate.id !== request.id &&
+            String(candidate.accountId || "") === String(request.accountId || "") &&
+            OPEN_RECOVERY_STATUSES.includes(candidate.status)
+        ).length;
+
+        return {
+          id: request.id,
+          requestReference: maskInternalId(request.id),
+          status: request.status || "recovery_pending",
+          version: Number(request.version || 0),
+          source: request.source || "administrative_recovery_form",
+          createdAtIso: toIso(request.createdAt) || request.createdAtIso || "",
+          updatedAtIso: toIso(request.updatedAt) || request.updatedAtIso || request.createdAtIso || "",
+          lastActionAtIso: toIso(request.lastActionAt) || request.lastActionAtIso || request.updatedAtIso || request.createdAtIso || "",
+          reviewerName: request.reviewerName || "",
+          otherOpenRequestCount: openForAccount,
+          employee: {
+            fullName: employee.name || account?.fullName || rawAccount.fullName || rawAccount.displayName || "",
+            employeeCode: request.employeeCode || employee.jobId || rawAccount.employeeCode || rawAccount.jobId || "",
+            organizationalUnit: employee.department || employee.branch || employee.organizationalUnit || employee.workplace || "",
+            nationalIdMasked: maskNationalId(employee.nationalId || rawAccount.nationalId),
+            phoneMasked: maskPhone(employee.phone || rawAccount.phone),
+            emailMasked: maskEmail(account?.email || employee.email || rawAccount.email),
+          },
+          account: account
+            ? {
+                reference: maskInternalId(account.id),
+                accountStatus: account.accountStatus,
+                authMode: account.authMode,
+                firebaseLinked: Boolean(rawAccount.firebaseUid),
+                firebaseUidMasked: account.firebaseUidMasked || "",
+                emailVerificationState: account.emailVerificationState,
+                createdAt: account.createdAt,
+                lastSignInAt: account.lastSignInAt,
+                lastAppActivityAt: account.lastAppActivityAt,
+              }
+            : null,
+          recoveryActionMethod: request.recoveryActionMethod || "",
+          recoveryActionStatus: request.recoveryActionStatus || "",
+          approvalReason: request.approvalReason || "",
+          rejectionReason: request.rejectionReason || "",
+          completionNote: request.completionNote || "",
+          history: history.slice(-100).map((event) => ({
+            action: String(event.action || ""),
+            actorName: String(event.actorName || ""),
+            from: String(event.from || ""),
+            to: String(event.to || ""),
+            reason: String(event.reason || "").slice(0, 300),
+            notes: String(event.notes || "").slice(0, 500),
+            atIso: String(event.atIso || ""),
+          })),
+        };
+      });
+
     return res.status(200).json({
       success: true,
       actor: { id: actor.id, fullName: actor.fullName || actor.displayName || "", role: actor.role },
@@ -126,9 +189,7 @@ export default async function handler(req, res) {
       auditLogs: auditLogs
         .sort((a, b) => String(b.createdAtIso || "").localeCompare(String(a.createdAtIso || "")))
         .slice(0, 80),
-      recoveryRequests: recoveries
-        .sort((a, b) => String(b.createdAtIso || "").localeCompare(String(a.createdAtIso || "")))
-        .slice(0, 50),
+      recoveryRequests: safeRecoveries,
     });
   } catch (error) {
     console.error("security_accounts_list_failed", { reason: error?.message || "unknown" });

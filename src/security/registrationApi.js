@@ -17,7 +17,11 @@ async function postJson(url, payload, options = {}) {
   if (!response.ok || body?.success === false) {
     const message = body?.error || body?.message || "تعذر تنفيذ العملية. حاول مرة أخرى.";
     const reference = body?.correlationId ? `\nرقم مرجعي للمحاولة: ${body.correlationId}` : "";
-    throw new Error(`${message}${reference}`);
+    const error = new Error(`${message}${reference}`);
+    error.code = body?.error || "request_failed";
+    error.status = response.status;
+    error.retryAfterSeconds = body?.retryAfterSeconds;
+    throw error;
   }
   return body;
 }
@@ -82,6 +86,13 @@ export async function fetchSecurityAccounts() {
 export async function runSecurityAccountAction(payload) {
   const token = await getFirebaseIdToken(true);
   return postJson("/api/admin/accounts/action", payload, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function runRecoveryAction(payload) {
+  const token = await getFirebaseIdToken(true);
+  return postJson("/api/admin/recovery/action", payload, {
     headers: { Authorization: `Bearer ${token}` },
   });
 }
