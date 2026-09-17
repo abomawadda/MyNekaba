@@ -13,7 +13,9 @@ export const isFirebaseAuthConfigured = () => Boolean(auth?.app);
 
 export const FIREBASE_AUTH_REASON = {
   invalidCredential: "INVALID_CREDENTIAL",
+  invalidEmail: "INVALID_EMAIL",
   providerDisabled: "FIREBASE_PROVIDER_DISABLED",
+  unauthorizedContinueUri: "FIREBASE_UNAUTHORIZED_CONTINUE_URI",
   network: "NETWORK_ERROR",
   tooManyRequests: "FIREBASE_TOO_MANY_REQUESTS",
   userDisabled: "FIREBASE_USER_DISABLED",
@@ -23,6 +25,10 @@ export const FIREBASE_AUTH_REASON = {
 
 export function getFirebaseAuthReason(error) {
   const code = error?.code || "";
+  if (code.includes("invalid-email") || code.includes("missing-email")) return FIREBASE_AUTH_REASON.invalidEmail;
+  if (code.includes("unauthorized-continue-uri") || code.includes("invalid-continue-uri")) {
+    return FIREBASE_AUTH_REASON.unauthorizedContinueUri;
+  }
   if (code.includes("operation-not-allowed")) return FIREBASE_AUTH_REASON.providerDisabled;
   if (code.includes("user-disabled")) return FIREBASE_AUTH_REASON.userDisabled;
   if (code.includes("network-request-failed")) return FIREBASE_AUTH_REASON.network;
@@ -40,6 +46,12 @@ export function isConfirmedInvalidCredentialError(error) {
 
 const translateFirebaseError = (error) => {
   const reason = getFirebaseAuthReason(error);
+  if (reason === FIREBASE_AUTH_REASON.invalidEmail) {
+    return "يرجى إدخال بريد إلكتروني بصيغة صحيحة.";
+  }
+  if (reason === FIREBASE_AUTH_REASON.unauthorizedContinueUri) {
+    return "تعذر إكمال الطلب حاليا. يرجى المحاولة مرة أخرى بعد قليل.";
+  }
   if (reason === FIREBASE_AUTH_REASON.providerDisabled) {
     return "تسجيل الدخول بالبريد غير مفعل في Firebase Console. فعّل Email/Password أولا.";
   }

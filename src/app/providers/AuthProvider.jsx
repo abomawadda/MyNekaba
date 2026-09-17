@@ -31,6 +31,7 @@ import {
 } from "../../security/permissions";
 import { validatePasswordPolicy } from "../../security/passwordPolicy";
 import {
+  FIREBASE_AUTH_REASON,
   firebaseSendPasswordResetEmail,
   firebaseSignIn,
   firebaseSignOut,
@@ -47,7 +48,6 @@ import {
 import {
   changeAccountPassword,
 } from "../../security/memberAccountService";
-import { requestAccountRecovery } from "../../security/registrationApi";
 import {
   SESSION_DURATION_MS,
   MAX_LOGIN_ATTEMPTS,
@@ -923,26 +923,38 @@ export function AuthProvider({ children }) {
     const identifier = normalizeLoginIdentifier(payload?.identifier || payload?.email || "");
     const looksLikeEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier);
 
-    if (looksLikeEmail) {
+    if (!looksLikeEmail) {
+      const error = new Error("يرجى إدخال بريد إلكتروني بصيغة صحيحة.");
+      error.reason = FIREBASE_AUTH_REASON.invalidEmail;
+      throw error;
+    }
+
+    try {
+      await firebaseSendPasswordResetEmail(identifier);
+    } catch (error) {
       try {
-        await firebaseSendPasswordResetEmail(identifier);
-        await logAuditEvent("auth.password_reset_requested", {
-          identifierHash: await hashValue(identifier),
-          delivery: "firebase_email",
-          riskLevel: "medium",
-        });
-      } catch (error) {
         await logAuditEvent("auth.password_reset_requested", {
           identifierHash: await hashValue(identifier),
           delivery: "firebase_email",
           reason: error?.reason || "RESET_DELIVERY_ERROR",
           riskLevel: "medium",
         });
+      } catch {
+        // Audit availability must not expose account state or replace the safe reset response.
       }
+      if (error?.reason !== FIREBASE_AUTH_REASON.invalidCredential) throw error;
       return;
     }
 
-    await requestAccountRecovery(payload);
+    try {
+      await logAuditEvent("auth.password_reset_requested", {
+        identifierHash: await hashValue(identifier),
+        delivery: "firebase_email",
+        riskLevel: "medium",
+      });
+    } catch {
+      // The reset request was already accepted by Firebase.
+    }
   }, []);
 
   const logout = useCallback(

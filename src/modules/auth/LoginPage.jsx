@@ -115,6 +115,10 @@ export default function LoginPage() {
   const [touched, setTouched] = useState({});
 
   const redirectTo = location.state?.from?.pathname || "/dashboardpage";
+  const resetComplete = useMemo(
+    () => new URLSearchParams(location.search).get("resetComplete") === "1",
+    [location.search]
+  );
   const fieldErrors = useMemo(
     () => ({
       identifier: !normalize(form.identifier) ? "أدخل اسم المستخدم أو البريد الإلكتروني أو الهاتف." : "",
@@ -169,6 +173,15 @@ export default function LoginPage() {
           </header>
 
           <div className="px-6 py-6 sm:px-8 sm:py-7">
+            {resetComplete && (
+              <div role="status" className="mb-5 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-800">
+                <div className="flex items-center gap-2 text-sm font-black">
+                  <ShieldCheck size={17} className="shrink-0" />
+                  تم تحديث كلمة المرور
+                </div>
+                <p className="mt-1 text-xs font-bold leading-5">يمكنك الآن تسجيل الدخول باستخدام كلمة المرور الجديدة.</p>
+              </div>
+            )}
             <div className="mb-5 flex items-center gap-2 rounded-2xl bg-slate-50 px-3.5 py-3 text-[11px] font-bold text-slate-500">
               <ShieldCheck size={16} className="shrink-0 text-brand-600" />
               اتصال آمن وحسابات مخصصة لمنسوبي المنظومة
