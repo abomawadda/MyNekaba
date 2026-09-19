@@ -23,7 +23,12 @@ import clsx from "clsx";
 import { useT } from "../../app/providers/ThemeProvider";
 import { useAuth } from "../../app/providers/AuthProvider";
 import { ROLE_LABELS, ROLE_OPTIONS } from "../../security/permissions";
-import { fetchSecurityAccounts, runRecoveryAction, runSecurityAccountAction } from "../../security/registrationApi";
+import {
+  approvePendingAccount,
+  fetchSecurityAccounts,
+  runRecoveryAction,
+  runSecurityAccountAction,
+} from "../../security/registrationApi";
 
 const TABS = [
   { id: "accounts", label: "الحسابات", icon: Users },
@@ -304,7 +309,15 @@ export default function SecurityCenter() {
     return reason?.trim() || "";
   };
 
-  const approve = (account) => runAction({ action: "setStatus", accountId: account.id, accountStatus: "active", reason: "approval" }, "تم اعتماد الحساب.");
+  const approve = async (account) => {
+    try {
+      await approvePendingAccount(account.id, account.role || "member");
+      showToast("تم اعتماد الحساب.");
+      await load();
+    } catch (actionError) {
+      showToast(actionError.message || "تعذر اعتماد الحساب.", "error");
+    }
+  };
   const reject = (account) => {
     const reason = requireReason("اكتب سبب رفض الطلب:");
     if (!reason) return null;

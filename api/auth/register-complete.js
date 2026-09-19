@@ -11,6 +11,7 @@ import {
   isEmail,
   normalizeEmail,
   randomToken,
+  resolveRegistrationIdentityContext,
   validatePasswordPolicy,
 } from "../_lib/registrationCore.js";
 
@@ -73,7 +74,9 @@ export default async function handler(req, res) {
     const email = emailMode === "registered" && keys.email ? keys.email : requestedEmail;
     if (!isEmail(email)) return res.status(400).json({ success: false, error: IDENTITY_ERROR });
 
-    const duplicate = hasDuplicateAccount(accounts, employee, requests.filter((item) => item.id !== request.id));
+    const otherRequests = requests.filter((item) => item.id !== request.id);
+    const identityContext = await resolveRegistrationIdentityContext({ auth, accounts, requests: otherRequests });
+    const duplicate = hasDuplicateAccount(accounts, employee, otherRequests, identityContext);
     if (duplicate.duplicate) return res.status(409).json({ success: false, error: DUPLICATE_ACCOUNT_ERROR });
 
     const passwordCheck = validatePasswordPolicy(password, {

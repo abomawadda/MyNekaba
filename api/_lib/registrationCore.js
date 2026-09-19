@@ -8,8 +8,18 @@ export const REGISTRATION_STATES = Object.freeze({
   identityVerified: "identity_verified",
   emailPendingVerification: "email_pending_verification",
   pendingApproval: "pending_approval",
+  completed: "completed",
+  retired: "retired",
+  expired: "expired",
   rejected: "rejected",
 });
+
+export const TERMINAL_REGISTRATION_STATES = Object.freeze([
+  REGISTRATION_STATES.completed,
+  REGISTRATION_STATES.retired,
+  REGISTRATION_STATES.expired,
+  REGISTRATION_STATES.rejected,
+]);
 
 export const VERIFY_REASON_CODES = Object.freeze({
   ok: "VERIFY_OK",
@@ -223,7 +233,83 @@ export function buildEmployeePreview(employee = {}) {
   };
 }
 
-export function hasDuplicateAccount(accounts = [], employee = {}, requests = []) {
+export function classifyRegistrationReservation(request = {}, context = {}) {
+  const status = normalizeText(request.status);
+  const expiresAt = new Date(request.expiresAt || 0).getTime();
+  const expired = Boolean(expiresAt && expiresAt <= Number(context.now || Date.now()));
+  const accountExists = Boolean(context.accountExists);
+  const firebaseUserExists = Boolean(context.firebaseUserExists);
+  const identityStateKnown = Boolean(context.identityStateKnown);
+
+  if (TERMINAL_REGISTRATION_STATES.includes(status)) {
+    return { blocking: false, retirable: false, status, expired, reason: "terminal_request" };
+  }
+
+  if (status === REGISTRATION_STATES.identityVerified) {
+    return {
+      blocking: !expired,
+      retirable: expired,
+      status,
+      expired,
+      reason: expired ? "expired_identity_verification" : "active_identity_verification",
+    };
+  }
+
+  if ([REGISTRATION_STATES.emailPendingVerification, REGISTRATION_STATES.pendingApproval].includes(status)) {
+    if (accountExists) {
+      return { blocking: true, retirable: false, status, expired, reason: "application_account_exists" };
+    }
+    if (firebaseUserExists) {
+      return { blocking: true, retirable: false, status, expired, reason: "firebase_identity_requires_review" };
+    }
+    if (!identityStateKnown) {
+      return { blocking: true, retirable: false, status, expired, reason: "identity_state_unknown" };
+    }
+    return {
+      blocking: !expired,
+      retirable: expired,
+      status,
+      expired,
+      reason: expired ? "stale_identity_absent" : "registration_in_progress",
+    };
+  }
+
+  if (status === "recovery_pending") {
+    return { blocking: true, retirable: false, status, expired, reason: "recovery_pending" };
+  }
+
+  return { blocking: false, retirable: false, status, expired, reason: "non_blocking_status" };
+}
+
+export function isRegistrationRequestBlocking(request = {}, context = {}) {
+  return classifyRegistrationReservation(request, context).blocking;
+}
+
+export function canRetireExpiredRegistration(request = {}, context = {}) {
+  return classifyRegistrationReservation(request, context).retirable;
+}
+
+export async function resolveRegistrationIdentityContext({ auth, accounts = [], requests = [] } = {}) {
+  const accountIds = new Set(accounts.map((account) => normalizeText(account.id)).filter(Boolean));
+  const firebaseUids = new Set();
+  const requestedUids = Array.from(
+    new Set(requests.map((request) => normalizeText(request.firebaseUid)).filter(Boolean))
+  );
+
+  if (!auth?.getUsers) {
+    return { identityStateKnown: false, accountIds, firebaseUids };
+  }
+
+  for (let index = 0; index < requestedUids.length; index += 100) {
+    const chunk = requestedUids.slice(index, index + 100);
+    const result = await auth.getUsers(chunk.map((uid) => ({ uid })));
+    result.users.forEach((user) => firebaseUids.add(normalizeText(user.uid)));
+  }
+
+  return { identityStateKnown: true, accountIds, firebaseUids };
+}
+
+export function hasDuplicateAccount(accounts = [], employee = {}, requests = [], identityContext = {}) {
   const keys = employeeKeys(employee);
   const account = accounts.find((candidate) => {
     const candidateKeys = [
@@ -241,21 +327,29 @@ export function hasDuplicateAccount(accounts = [], employee = {}, requests = [])
       candidateDigits.includes(keys.nationalId)
     );
   });
-  const now = Date.now();
   const request = requests.find((candidate) => {
-    const expiresAt = new Date(candidate.expiresAt || 0).getTime();
-    const isExpiredIdentityRequest =
-      candidate.status === REGISTRATION_STATES.identityVerified &&
-      expiresAt &&
-      expiresAt <= now;
-    return (
-      !isExpiredIdentityRequest &&
-      ["identity_verified", "email_pending_verification", "pending_approval", "recovery_pending"].includes(candidate.status) &&
-      (normalizeText(candidate.employeeId) === keys.employeeId ||
-        normalizeDigits(candidate.employeeCode) === keys.employeeCode)
-    );
+    const employeeMatches =
+      normalizeText(candidate.employeeId) === keys.employeeId ||
+      normalizeDigits(candidate.employeeCode) === keys.employeeCode;
+    if (!employeeMatches) return false;
+
+    const reservation = classifyRegistrationReservation(candidate, {
+      now: identityContext.now,
+      identityStateKnown: identityContext.identityStateKnown,
+      accountExists: identityContext.accountIds?.has(normalizeText(candidate.accountId)),
+      firebaseUserExists: identityContext.firebaseUids?.has(normalizeText(candidate.firebaseUid)),
+    });
+    return reservation.blocking;
   });
-  return { duplicate: Boolean(account || request), account, request };
+  const reservation = request
+    ? classifyRegistrationReservation(request, {
+        now: identityContext.now,
+        identityStateKnown: identityContext.identityStateKnown,
+        accountExists: identityContext.accountIds?.has(normalizeText(request.accountId)),
+        firebaseUserExists: identityContext.firebaseUids?.has(normalizeText(request.firebaseUid)),
+      })
+    : null;
+  return { duplicate: Boolean(account || request), account, request, reservation };
 }
 
 export function validatePasswordPolicy(password = "", profile = {}) {

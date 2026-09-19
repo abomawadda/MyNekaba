@@ -26,39 +26,70 @@ export default async function handler(req, res) {
     if (!accountId) return res.status(400).json({ success: false, error: "missing_account" });
 
     const ref = context.db.collection("user_accounts").doc(accountId);
-    const doc = await ref.get();
-    if (!doc.exists) return res.status(404).json({ success: false, error: "account_not_found" });
-    const account = doc.data();
-    if (account.accountStatus !== "pending_approval") {
-      return res.status(409).json({ success: false, error: "account_not_pending" });
-    }
+    const requestsQuery = context.db
+      .collection("registration_requests")
+      .where("accountId", "==", accountId);
+    const auditRef = context.db.collection("audit_logs").doc();
+    const approvedAtIso = new Date().toISOString();
+    await context.db.runTransaction(async (transaction) => {
+      const [accountDoc, requestsSnapshot] = await Promise.all([
+        transaction.get(ref),
+        transaction.get(requestsQuery),
+      ]);
+      if (!accountDoc.exists) throw new Error("account_not_found");
+      const account = accountDoc.data();
+      if (account.accountStatus !== "pending_approval") throw new Error("account_not_pending");
+      const openRequests = requestsSnapshot.docs.filter((requestDoc) =>
+        ["email_pending_verification", "pending_approval"].includes(requestDoc.data().status)
+      );
+      if (openRequests.length > 1) throw new Error("ambiguous_registration_request");
+      const firebaseNative = Boolean(account.firebaseUid && !account.passwordHash && !account.passwordSalt);
+      if (firebaseNative && openRequests.length !== 1) throw new Error("registration_request_missing");
+      const requestRef = openRequests[0]?.ref || null;
 
-    await ref.update({
-      role,
-      accountStatus: "active",
-      registrationState: "active",
-      approvedAt: FieldValue.serverTimestamp(),
-      approvedAtIso: new Date().toISOString(),
-      approvedBy: actor.id,
-      updatedAt: FieldValue.serverTimestamp(),
-      updatedAtIso: new Date().toISOString(),
-    });
+      if (requestRef) {
+        transaction.update(requestRef, {
+          status: "completed",
+          completedAt: FieldValue.serverTimestamp(),
+          completedAtIso: approvedAtIso,
+          completedBy: actor.id,
+          updatedAt: FieldValue.serverTimestamp(),
+          updatedAtIso: approvedAtIso,
+        });
+      }
 
-    await context.db.collection("audit_logs").add({
-      action: "registration.approved",
-      userId: actor.id,
-      userName: actor.fullName || actor.displayName || "",
-      role: actor.role,
-      targetId: accountId,
-      riskLevel: role === "admin" || role === "treasurer" ? "high" : "medium",
-      details: { assignedRole: role },
-      createdAt: FieldValue.serverTimestamp(),
-      createdAtIso: new Date().toISOString(),
+      transaction.update(ref, {
+        role,
+        accountStatus: "active",
+        registrationState: "active",
+        approvedAt: FieldValue.serverTimestamp(),
+        approvedAtIso,
+        approvedBy: actor.id,
+        updatedAt: FieldValue.serverTimestamp(),
+        updatedAtIso: approvedAtIso,
+      });
+
+      transaction.set(auditRef, {
+        action: "registration.approved",
+        userId: actor.id,
+        userName: actor.fullName || actor.displayName || "",
+        role: actor.role,
+        targetId: accountId,
+        riskLevel: role === "admin" || role === "treasurer" ? "high" : "medium",
+        details: { assignedRole: role, registrationRequestTransitioned: Boolean(requestRef) },
+        createdAt: FieldValue.serverTimestamp(),
+        createdAtIso: approvedAtIso,
+      });
     });
 
     return res.status(200).json({ success: true });
   } catch (error) {
-    console.error("account_approve_failed", { reason: error?.message || "unknown" });
+    const reason = error?.message || "unknown";
+    console.error("account_approve_failed", { reason });
+    if (reason === "account_not_found") return res.status(404).json({ success: false, error: reason });
+    if (["account_not_pending", "ambiguous_registration_request", "registration_request_missing"].includes(reason)) {
+      return res.status(409).json({ success: false, error: reason });
+    }
     return res.status(403).json({ success: false, error: "unauthorized" });
   }
 }

@@ -272,6 +272,7 @@ export function AuthProvider({ children }) {
         fingerprint,
         status: "active",
         loginMode: nextUser.loginMode,
+        authMode: nextUser.authMode || "legacy",
         createdAt: serverTimestamp(),
         createdAtIso: new Date().toISOString(),
         lastSeenAt: serverTimestamp(),

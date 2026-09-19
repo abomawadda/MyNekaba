@@ -12,6 +12,7 @@ import {
   normalizeDigits,
   normalizeEgyptianPhone,
   randomToken,
+  resolveRegistrationIdentityContext,
 } from "../_lib/registrationCore.js";
 
 const attempts = new Map();
@@ -72,7 +73,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ success: false, error: IDENTITY_ERROR, correlationId: verificationCorrelationId });
     }
 
-    const { db } = getAdminContext();
+    const { auth, db } = getAdminContext();
     const [employees, accounts, requestsSnapshot] = await Promise.all([
       readCollection(db, "employees"),
       readCollection(db, "user_accounts"),
@@ -105,7 +106,12 @@ export default async function handler(req, res) {
       return res.status(401).json({ success: false, error: IDENTITY_ERROR, correlationId: verificationCorrelationId });
     }
 
-    const duplicate = hasDuplicateAccount(accounts, employee, requestsSnapshot);
+    const identityContext = await resolveRegistrationIdentityContext({
+      auth,
+      accounts,
+      requests: requestsSnapshot,
+    });
+    const duplicate = hasDuplicateAccount(accounts, employee, requestsSnapshot, identityContext);
     if (duplicate.duplicate) {
       const reasonCode = duplicate.account ? VERIFY_REASON_CODES.duplicateAccount : VERIFY_REASON_CODES.pendingRequestExists;
       console.warn("employee_verification_blocked", {
