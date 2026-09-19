@@ -815,6 +815,7 @@ export function AuthProvider({ children }) {
       email: normalizedEmail || "",
       username,
       role: normalizedRole,
+      identityType: "employee",
       title: "بانتظار التفعيل",
       membershipStatus: "طلب حساب جديد",
       accountStatus: ACCOUNT_STATUS_PENDING,
@@ -975,6 +976,9 @@ export function AuthProvider({ children }) {
     if (!accountId) throw new Error("معرف الحساب مطلوب.");
     if (!hasPermission(user, PERMISSIONS.securityManageAccounts)) {
       throw new Error("لا تملك صلاحية إدارة الحسابات.");
+    }
+    if (Object.keys(updates).some((key) => key.startsWith("identityType"))) {
+      throw new Error("تصنيف الهوية متاح فقط عبر مسار خادم موثوق.");
     }
 
     const nextRole = updates.role ? normalizeRole(updates.role) : undefined;

@@ -2,6 +2,11 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { getAdminContext } from "../../_lib/firebaseAdmin.js";
 import { requireAdminActor } from "../../_lib/adminAuthorization.js";
+import {
+  APPROVAL_FLOW_REQUIRED,
+  INVALID_REACTIVATION_STATE,
+  validateGenericActiveTransition,
+} from "../../_lib/accountLifecycle.js";
 
 const ROLE_WHITELIST = new Set(["admin", "treasurer", "dataEntry", "auditor", "viewer", "member"]);
 const STATUS_WHITELIST = new Set(["pending_approval", "active", "rejected", "suspended", "deleted"]);
@@ -97,7 +102,31 @@ export default async function handler(req, res) {
         return res.status(409).json({ success: false, error: "last_admin_protected" });
       }
       const prefix = accountStatus === "suspended" ? "suspended" : accountStatus === "active" ? "reactivated" : "statusChanged";
-      await accountRef.update({ accountStatus, [`${prefix}By`]: actor.id, [`${prefix}Reason`]: reason, ...nowPayload(prefix) });
+      if (accountStatus === "active") {
+        const registrationQuery = context.db
+          .collection("registration_requests")
+          .where("accountId", "==", account.id);
+        await context.db.runTransaction(async (transaction) => {
+          const [currentAccountDoc, registrationSnapshot] = await Promise.all([
+            transaction.get(accountRef),
+            transaction.get(registrationQuery),
+          ]);
+          if (!currentAccountDoc.exists) throw new Error("missing_account");
+          const validation = validateGenericActiveTransition(
+            { id: currentAccountDoc.id, ...currentAccountDoc.data() },
+            registrationSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+          );
+          if (!validation.allowed) throw new Error(validation.error);
+          transaction.update(accountRef, {
+            accountStatus,
+            [`${prefix}By`]: actor.id,
+            [`${prefix}Reason`]: reason,
+            ...nowPayload(prefix),
+          });
+        });
+      } else {
+        await accountRef.update({ accountStatus, [`${prefix}By`]: actor.id, [`${prefix}Reason`]: reason, ...nowPayload(prefix) });
+      }
       if (account.firebaseUid && ["suspended", "deleted"].includes(accountStatus)) {
         await context.auth.updateUser(account.firebaseUid, { disabled: true }).catch(() => null);
       }
@@ -195,7 +224,11 @@ export default async function handler(req, res) {
 
     return res.status(400).json({ success: false, error: "unknown_action" });
   } catch (error) {
-    console.error("security_account_action_failed", { reason: error?.message || "unknown" });
+    const reason = error?.message || "unknown";
+    console.error("security_account_action_failed", { reason });
+    if ([APPROVAL_FLOW_REQUIRED, INVALID_REACTIVATION_STATE].includes(reason)) {
+      return res.status(409).json({ success: false, error: reason });
+    }
     return res.status(403).json({ success: false, error: "unauthorized" });
   }
 }

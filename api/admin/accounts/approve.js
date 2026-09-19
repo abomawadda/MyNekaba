@@ -2,6 +2,10 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { getAdminContext } from "../../_lib/firebaseAdmin.js";
 import { requireAdminActor } from "../../_lib/adminAuthorization.js";
+import {
+  IDENTITY_CLASSIFICATION_ERROR,
+  validateIdentityClassification,
+} from "../../_lib/identityClassification.js";
 
 const ALLOWED_ROLES = new Set(["admin", "treasurer", "dataEntry", "auditor", "viewer", "member"]);
 
@@ -39,6 +43,39 @@ export default async function handler(req, res) {
       if (!accountDoc.exists) throw new Error("account_not_found");
       const account = accountDoc.data();
       if (account.accountStatus !== "pending_approval") throw new Error("account_not_pending");
+      const employeeRef = account.employeeId
+        ? context.db.collection("employees").doc(String(account.employeeId))
+        : null;
+      if (!employeeRef) throw new Error(IDENTITY_CLASSIFICATION_ERROR.employeeMappingMissing);
+      const employeeDoc = await transaction.get(employeeRef);
+      const duplicateQueries = [
+        context.db.collection("user_accounts").where("employeeId", "==", String(account.employeeId)),
+        account.employeeCode
+          ? context.db.collection("user_accounts").where("employeeCode", "==", String(account.employeeCode))
+          : null,
+        account.employeeCode
+          ? context.db.collection("user_accounts").where("jobId", "==", String(account.employeeCode))
+          : null,
+        account.nationalId
+          ? context.db.collection("user_accounts").where("nationalId", "==", String(account.nationalId))
+          : null,
+      ].filter(Boolean);
+      const duplicateSnapshots = await Promise.all(
+        duplicateQueries.map((query) => transaction.get(query))
+      );
+      const duplicateAccounts = Array.from(
+        new Map(
+          duplicateSnapshots
+            .flatMap((snapshot) => snapshot.docs)
+            .map((doc) => [doc.id, { id: doc.id, ...doc.data() }])
+        ).values()
+      );
+      const identityValidation = validateIdentityClassification({
+        account: { id: accountDoc.id, ...account },
+        employees: employeeDoc.exists ? [{ id: employeeDoc.id, ...employeeDoc.data() }] : [],
+        accounts: duplicateAccounts,
+      });
+      if (!identityValidation.valid) throw new Error(identityValidation.error);
       const openRequests = requestsSnapshot.docs.filter((requestDoc) =>
         ["email_pending_verification", "pending_approval"].includes(requestDoc.data().status)
       );
@@ -87,7 +124,12 @@ export default async function handler(req, res) {
     const reason = error?.message || "unknown";
     console.error("account_approve_failed", { reason });
     if (reason === "account_not_found") return res.status(404).json({ success: false, error: reason });
-    if (["account_not_pending", "ambiguous_registration_request", "registration_request_missing"].includes(reason)) {
+    if ([
+      "account_not_pending",
+      "ambiguous_registration_request",
+      "registration_request_missing",
+      ...Object.values(IDENTITY_CLASSIFICATION_ERROR),
+    ].includes(reason)) {
       return res.status(409).json({ success: false, error: reason });
     }
     return res.status(403).json({ success: false, error: "unauthorized" });

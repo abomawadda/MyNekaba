@@ -14,6 +14,10 @@ import {
   resolveRegistrationIdentityContext,
   validatePasswordPolicy,
 } from "../_lib/registrationCore.js";
+import {
+  IDENTITY_TYPE,
+  validateIdentityClassification,
+} from "../_lib/identityClassification.js";
 
 async function readBody(req) {
   if (req.body && typeof req.body === "object") return req.body;
@@ -108,7 +112,7 @@ export default async function handler(req, res) {
     const username = buildUsername(keys.employeeCode);
     await auth.setCustomUserClaims(authUser.uid, { accountId });
 
-    await accountRef.set({
+    const accountPayload = {
       id: accountId,
       firebaseUid: authUser.uid,
       employeeId: keys.employeeId,
@@ -120,6 +124,7 @@ export default async function handler(req, res) {
       fullName: employee.name || employee.fullName || "",
       displayName: employee.name || employee.fullName || "",
       role: "member",
+      identityType: IDENTITY_TYPE.employee,
       authMode: "firebase-native",
       credentialAuthority: "firebase",
       title: "عضو",
@@ -130,7 +135,14 @@ export default async function handler(req, res) {
       permissionOverrides: [],
       createdAt: FieldValue.serverTimestamp(),
       createdAtIso: new Date().toISOString(),
+    };
+    const identityValidation = validateIdentityClassification({
+      account: accountPayload,
+      employees,
+      accounts,
     });
+    if (!identityValidation.valid) throw new Error(identityValidation.error);
+    await accountRef.set(accountPayload);
 
     await db.collection("registration_requests").doc(verificationId).update({
       status: REGISTRATION_STATES.emailPendingVerification,

@@ -61,6 +61,18 @@ service cloud.firestore {
       return isActive() && accountDoc().employeeCode is string ? accountDoc().employeeCode : '';
     }
 
+    function changesIdentityClassification() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'identityType',
+        'identityTypeSource',
+        'identityTypeClassifiedAt',
+        'identityTypeClassifiedAtIso',
+        'identityTypeClassifiedBy',
+        'identityTypeReason',
+        'identityTypeClassificationId'
+      ]);
+    }
+
     function ownsEmployeeRecord(employeeDocId) {
       return isMember()
         && (
@@ -80,8 +92,10 @@ service cloud.firestore {
 
     match /user_accounts/{uid} {
       allow read: if isAdmin() || (isSignedIn() && accountId() == uid);
-      allow create: if isAdmin();
-      allow update: if isAdmin() || (isSignedIn() && accountId() == uid
+      allow create: if isAdmin()
+        && request.resource.data.identityType != 'administrative';
+      allow update: if !changesIdentityClassification()
+        && (isAdmin() || (isSignedIn() && accountId() == uid
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'role',
           'accountStatus',
@@ -92,8 +106,15 @@ service cloud.firestore {
           'nationalId',
           'phone',
           'email',
-          'firebaseUid'
-        ]));
+          'firebaseUid',
+          'identityType',
+          'identityTypeSource',
+          'identityTypeClassifiedAt',
+          'identityTypeClassifiedAtIso',
+          'identityTypeClassifiedBy',
+          'identityTypeReason',
+          'identityTypeClassificationId'
+        ])));
       allow delete: if isAdmin();
     }
 
