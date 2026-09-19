@@ -89,6 +89,10 @@ import SettlementArchiveTable from "./components/SettlementArchiveTable";
 import SettlementDraftSection from "./components/SettlementDraftSection";
 import SettlementKpiStrip from "./components/SettlementKpiStrip";
 import SettlementWorkspaceTabs from "./components/SettlementWorkspaceTabs";
+import {
+  canAccessSettlementDiagnostic,
+  requireSettlementDiagnosticPermission,
+} from "./settlementAuthorization";
 
 const INITIAL_CATS = ["بدل ضيافة", "أدوات مكتبية", "بدل انتقال", "صيانة", "مشتريات أخرى", "بدل جلسات", PRIZE_CATEGORY];
 const EXPENSE_CATS_LIST_KEY = "settlement_expense_cats";
@@ -460,6 +464,7 @@ function InlineDynamicSelect({ label, value, onChange, icon: Icon, defaultOption
 // 🩺 DiagnosticPanel — تحليل جميع الشيكات وتصنيفها حسب ظهورها
 // ═══════════════════════════════════════════════════════════════
 function DiagnosticPanel({ issuedChecks, legacyTransactions, normalizedSourceTransactions, openAdvances, T, formatMoney: fmtMoney, formatInteger: fmtInt }) {
+  const { can } = useAuth();
   const [filterType, setFilterType] = useState("all");
   const [filterCategory, setFilterCategory] = useState("all");
   const [searchQ, setSearchQ] = useState("");
@@ -479,8 +484,14 @@ function DiagnosticPanel({ issuedChecks, legacyTransactions, normalizedSourceTra
     setTimeout(() => setDToast(null), 3500);
   };
 
+  const requireDiagnosticPermission = () => requireSettlementDiagnosticPermission(
+    can,
+    (message) => showDToast(message, "error")
+  );
+
   // 🛠️ إعادة تعيين شامل — يحذف كل أثر للتسوية ويعيد الشيك مفتوحاً
   const handleResetCheck = async (record) => {
+    if (!requireDiagnosticPermission()) return;
     if (record.isGrouped) {
       showDToast("لا يمكن إعادة تعيين شيك تابع لتسوية مجمعة من شاشة التشخيص", "error");
       return;
@@ -533,6 +544,7 @@ function DiagnosticPanel({ issuedChecks, legacyTransactions, normalizedSourceTra
   };
 
   const handleFixState = async (record) => {
+    if (!requireDiagnosticPermission()) return;
     setActionLoading(prev => ({ ...prev, [record.id]: true }));
     try {
       const targetId = record.targetDocId || record.id;
@@ -553,6 +565,7 @@ function DiagnosticPanel({ issuedChecks, legacyTransactions, normalizedSourceTra
   };
 
   const handleEnableSettlement = async (record) => {
+    if (!requireDiagnosticPermission()) return;
     setActionLoading(prev => ({ ...prev, [record.id]: true }));
     try {
       const targetId = record.targetDocId || record.id;
@@ -906,6 +919,8 @@ export default function SettlementTab() {
   const T = useT();
   const { can } = useAuth();
   const [activeTab, setActiveTab] = useState("current");
+  const canUseDiagnostic = canAccessSettlementDiagnostic(can);
+  const authorizedActiveTab = activeTab === "diagnostic" && !canUseDiagnostic ? "current" : activeTab;
   const [issuedChecks, setIssuedChecks] = useState([]);
   const [legacyTransactions, setLegacyTransactions] = useState([]);
   const [employees, setEmployees] = useState([]);
@@ -2917,9 +2932,9 @@ export default function SettlementTab() {
         </div>
       )}
 
-      <SettlementWorkspaceTabs activeTab={activeTab} onChange={setActiveTab} openCount={openAdvances.length} />
+      <SettlementWorkspaceTabs activeTab={authorizedActiveTab} onChange={setActiveTab} openCount={openAdvances.length} />
 
-      {activeTab === "current" && (
+      {authorizedActiveTab === "current" && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 animate-in fade-in duration-500">
 
           <div className="lg:col-span-12">
@@ -3314,7 +3329,7 @@ export default function SettlementTab() {
         </div>
       )}
 
-      {activeTab === "diagnostic" && <DiagnosticPanel
+      {authorizedActiveTab === "diagnostic" && canUseDiagnostic && <DiagnosticPanel
         issuedChecks={issuedChecks}
         legacyTransactions={legacyTransactions}
         normalizedSourceTransactions={normalizedSourceTransactions}
@@ -3324,7 +3339,7 @@ export default function SettlementTab() {
         formatInteger={formatInteger}
       />}
 
-      {activeTab === "archive" && (
+      {authorizedActiveTab === "archive" && (
         <div className={clsx("rounded-2xl border shadow-sm overflow-hidden animate-in fade-in duration-500", T.card)}>
           <div className="p-4 border-b flex flex-wrap justify-between items-center gap-3 bg-slate-50/50 dark:bg-slate-900/20">
             <h3 className="font-black text-[11px] uppercase tracking-widest flex items-center gap-2"><History size={14} className="text-teal-600" /> أرشيف وتسويات العهد والأنشطة</h3>
