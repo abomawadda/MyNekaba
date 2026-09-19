@@ -1,8 +1,13 @@
 import { getModuleIcon } from "../../ui/enterprise";
 import { UNION_ACTIVITY_TYPES } from "../../modules/activities/union/activityConfig";
+import { PERMISSIONS } from "../../security/permissions";
 
 function allowed(can, path, label, options = {}) {
-  return can(path) ? { label, path, icon: getModuleIcon(path), ...options } : null;
+  const { permission = path, permissions, ...itemOptions } = options;
+  const requiredPermissions = permissions || [permission];
+  return requiredPermissions.every((requiredPermission) => can(requiredPermission))
+    ? { label, path, icon: getModuleIcon(path.split("?")[0]), ...itemOptions }
+    : null;
 }
 
 export function buildNavigation(can) {
@@ -22,15 +27,18 @@ export function buildNavigation(can) {
   ].filter(Boolean);
 
   const treasury = [
-    allowed(can, "/treasury/admin", "إصدار السندات"),
-    allowed(can, "/treasury/admin", "شيك رعاية", { path: "/treasury/admin?type=aid" }),
-    allowed(can, "/treasury/admin", "شيك سلفة", { path: "/treasury/admin?type=advance" }),
-    allowed(can, "/treasury/admin", "شيك رحلة", { path: "/treasury/admin?type=trip" }),
-    allowed(can, "/treasury/admin", "خصم مباشر", { path: "/treasury/admin?type=bank_charge" }),
+    allowed(can, "/treasury/admin", "سجل الخزينة"),
+    allowed(can, "/treasury/admin", "إصدار السندات", { permissions: [PERMISSIONS.treasuryView, PERMISSIONS.treasuryCreate] }),
+    allowed(can, "/treasury/admin?type=aid", "شيك رعاية", { permissions: [PERMISSIONS.treasuryView, PERMISSIONS.treasuryCreate] }),
+    allowed(can, "/treasury/admin?type=advance", "شيك سلفة", { permissions: [PERMISSIONS.treasuryView, PERMISSIONS.treasuryCreate] }),
+    allowed(can, "/treasury/admin?type=trip", "شيك رحلة", { permissions: [PERMISSIONS.treasuryView, PERMISSIONS.treasuryCreate] }),
+    allowed(can, "/treasury/admin?type=bank_charge", "خصم مباشر", { permissions: [PERMISSIONS.treasuryView, PERMISSIONS.treasuryCreate] }),
     allowed(can, "/treasury/settlements", "التسويات"),
     allowed(can, "/treasury/checkbooks", "دفاتر الشيكات"),
-    allowed(can, "/treasury/checks", "إدارة الشيكات"),
-    allowed(can, "/treasury/check-reports", "تقارير الشيكات"),
+    allowed(can, "/treasury/checks", "سجل الشيكات"),
+    allowed(can, "/treasury/check-reports", "تقارير الشيكات", {
+      permissions: [PERMISSIONS.treasuryView, PERMISSIONS.reportsView],
+    }),
     allowed(can, "/treasury/collections", "متابعة التحصيل"),
     allowed(can, "/treasury/ledger", "كشف الحساب"),
   ].filter(Boolean);

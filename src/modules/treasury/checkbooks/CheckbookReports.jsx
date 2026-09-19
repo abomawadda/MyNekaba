@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { collection, onSnapshot, query } from "firebase/firestore";
 import { FileSpreadsheet } from "lucide-react";
 import { db } from "../../../app/providers/FirebaseProvider";
+import { useAuth } from "../../../app/providers/AuthProvider";
 import { Button, Card, DataTable, PageHeader, StatusBadge } from "../../../ui/enterprise";
+import { PERMISSIONS } from "../../../security/permissions";
 import { CHECKBOOK_STATUS, getCheckLifecycle, getCheckStatusLabel } from "./checkbookConstants";
 import { subscribeCheckbooks } from "./services/checkbookService";
 import { formatMoney } from "../../../utils/numberFormat";
@@ -18,6 +20,8 @@ const TABS = [
 ];
 
 export default function CheckbookReports() {
+  const { can } = useAuth();
+  const canExport = can(PERMISSIONS.reportsExport);
   const [books, setBooks] = useState([]);
   const [checks, setChecks] = useState([]);
   const [tab, setTab] = useState("books");
@@ -74,6 +78,7 @@ export default function CheckbookReports() {
   ], []);
 
   const exportRows = async (format) => {
+    if (!canExport) return;
     const data = tab === "books"
       ? books.map((b) => ({ الطلب: b.requestNo, التاريخ: b.requestDate, البنك: b.bank, الحالة: CHECKBOOK_STATUS[b.status], من: b.serialFrom, إلى: b.serialTo, العدد: b.checksCount, القرار: b.decisionNo || "", السبب: b.reason || "" }))
       : tab === "position"
@@ -83,6 +88,7 @@ export default function CheckbookReports() {
   };
 
   const print = () => {
+    if (!canExport) return;
     const win = openPrintWindow("check-report", "width=1100,height=800");
     if (!win) return;
     const tabLabel = TABS.find(([id]) => id === tab)?.[1] || tab;
@@ -107,10 +113,12 @@ export default function CheckbookReports() {
         {TABS.map(([id, l]) => (
           <button key={id} onClick={() => setTab(id)} className={`px-3 py-1.5 rounded-lg text-[11px] font-black transition-all ${tab === id ? "bg-violet-700 text-white shadow-sm" : "bg-slate-100 dark:bg-slate-800 hover:bg-violet-700/10"}`}>{l}</button>
         ))}
-        <div className="mr-auto flex gap-1">
-          <Button onClick={print} variant="outline" size="sm">طباعة</Button>
-          <Button onClick={() => exportRows("xlsx")} size="sm">Excel</Button>
-        </div>
+        {canExport && (
+          <div className="mr-auto flex gap-1">
+            <Button onClick={print} variant="outline" size="sm">طباعة</Button>
+            <Button onClick={() => exportRows("xlsx")} size="sm">Excel</Button>
+          </div>
+        )}
       </div>
       <Card compact>
           {tab === "books" && (

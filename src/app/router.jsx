@@ -225,7 +225,7 @@ export default function Router() {
         <Route
           path="/treasury/check-reports"
           element={
-            <ProtectedRoute permission={PERMISSIONS.reportsView}>
+            <ProtectedRoute permission={[PERMISSIONS.treasuryView, PERMISSIONS.reportsView]}>
               <CheckbookReports />
             </ProtectedRoute>
           }

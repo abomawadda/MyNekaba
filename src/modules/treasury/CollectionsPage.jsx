@@ -4,11 +4,13 @@ import clsx from "clsx";
 import { AlertTriangle, CalendarClock, Hourglass, Wallet } from "lucide-react";
 import { Link } from "react-router-dom";
 import { db } from "../../app/providers/FirebaseProvider";
+import { useAuth } from "../../app/providers/AuthProvider";
 import { useT } from "../../app/providers/ThemeProvider";
 import BrandHeader from "../../ui/BrandHeader";
 import { StatCard, StatusBadge } from "../../ui/enterprise";
 import { formatMoney } from "../../utils/numberFormat";
 import { normalizeRequiresSettlement } from "../treasury/helpers/issuedChecks";
+import { PERMISSIONS } from "../../security/permissions";
 
 const getTodayISO = () => new Date().toISOString().split("T")[0];
 
@@ -33,6 +35,8 @@ function Section({ title, icon, count, to, children, cardClass }) {
 
 export default function CollectionsPage() {
   const T = useT();
+  const { can } = useAuth();
+  const canSettle = can(PERMISSIONS.treasurySettle);
   const [bookings, setBookings] = useState([]);
   const [checks, setChecks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -192,7 +196,7 @@ export default function CollectionsPage() {
                   <td className="p-2 font-black whitespace-nowrap">{formatMoney(r.amount)}</td>
                   <td className="p-2 whitespace-nowrap">{r.date || "—"}</td>
                   <td className="p-2 whitespace-nowrap"><StatusBadge tone="warning">{r.age} يوم</StatusBadge></td>
-                  <td className="p-2"><Link to="/treasury/settlements" className="text-[10px] font-black text-violet-700 hover:underline whitespace-nowrap">تسوية</Link></td>
+                  <td className="p-2"><Link to="/treasury/settlements" className="text-[10px] font-black text-violet-700 hover:underline whitespace-nowrap">{canSettle ? "تسوية" : "عرض"}</Link></td>
                 </tr>
               ))}
             </tbody>

@@ -118,6 +118,7 @@ export default function TreasuryPage() {
   const canDeleteFinancial = can(PERMISSIONS.treasuryDelete);
   const canPost = can(PERMISSIONS.treasuryPost);
   const canViewAttachments = can(PERMISSIONS.attachmentsView);
+  const canExportReports = can(PERMISSIONS.reportsExport);
 
   // فتح النموذج عند وجود type في الرابط (sidebar, dashboard links)
   useEffect(() => {
@@ -224,6 +225,7 @@ export default function TreasuryPage() {
   };
 
   const handleExportExcel = async (format) => {
+    if (!canExportReports) return;
     showToast("جاري التجهيز...", "success");
     try {
       const rows = visible.map(tx => ({
@@ -243,6 +245,7 @@ export default function TreasuryPage() {
 
   // 🔴 تقرير محاسبي حقيقي (مدين/دائن/رصيد)
   const handlePrintReport = () => {
+    if (!canExportReports) return;
     const win = openPrintWindow("treasury-report", "width=1100,height=800");
     if (!win) return;
 
@@ -474,17 +477,21 @@ export default function TreasuryPage() {
 
               <div className="flex items-center gap-2 flex-wrap">
                 <Button variant="outline" onClick={resetFilters} iconStart={FilterX}>تفريغ الفلاتر</Button>
-                <Button variant="outline" onClick={handlePrintReport} iconStart={Printer}>طباعة كشف</Button>
-                <select
-                  onChange={(e) => { const f = e.target.value; if (f) handleExportExcel(f); e.target.value = ""; }}
-                  className="h-9 px-4 text-xs font-semibold text-white bg-slate-800 hover:bg-slate-700 rounded-lg cursor-pointer appearance-none transition-all shadow-sm"
-                  style={{ direction: "ltr" }}
-                  aria-label="تصدير سجلات الخزينة"
-                >
-                  <option value="">تصدير</option>
-                  <option value="xlsx">Excel (XLSX)</option>
-                  <option value="json">JSON</option>
-                </select>
+                {canExportReports && (
+                  <>
+                    <Button variant="outline" onClick={handlePrintReport} iconStart={Printer}>طباعة كشف</Button>
+                    <select
+                      onChange={(e) => { const f = e.target.value; if (f) handleExportExcel(f); e.target.value = ""; }}
+                      className="h-9 px-4 text-xs font-semibold text-white bg-slate-800 hover:bg-slate-700 rounded-lg cursor-pointer appearance-none transition-all shadow-sm"
+                      style={{ direction: "ltr" }}
+                      aria-label="تصدير سجلات الخزينة"
+                    >
+                      <option value="">تصدير</option>
+                      <option value="xlsx">Excel (XLSX)</option>
+                      <option value="json">JSON</option>
+                    </select>
+                  </>
+                )}
               </div>
             </div>
 

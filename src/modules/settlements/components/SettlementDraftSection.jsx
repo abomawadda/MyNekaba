@@ -8,7 +8,7 @@ const getDraftTypeLabel = (draft) => {
   return "تسوية";
 };
 
-export default function SettlementDraftSection({ drafts = [], formatMoney, onContinue, onDiscard }) {
+export default function SettlementDraftSection({ drafts = [], formatMoney, onContinue, onDiscard, canManage = false }) {
   if (!drafts.length) return null;
 
   return (
@@ -24,7 +24,7 @@ export default function SettlementDraftSection({ drafts = [], formatMoney, onCon
         <table className="table-enterprise w-full text-right">
           <thead>
             <tr className="bg-amber-100/50 dark:bg-amber-900/20">
-              {["المسؤول", "الحالة", "النوع", "المبلغ", "الفواتير", "تاريخ الحفظ", "إجراءات"].map((heading) => (
+              {["المسؤول", "الحالة", "النوع", "المبلغ", "الفواتير", "تاريخ الحفظ", ...(canManage ? ["إجراءات"] : [])].map((heading) => (
                 <th key={heading} className="p-3 text-[10px] font-bold uppercase text-amber-700 dark:text-amber-400">
                   {heading}
                 </th>
@@ -47,14 +47,16 @@ export default function SettlementDraftSection({ drafts = [], formatMoney, onCon
                 <td className="num p-3 text-xs font-bold text-slate-700 dark:text-slate-100">{formatMoney(Number(draft.advanceAmountBase || draft.amount || 0))}</td>
                 <td className="num p-3 text-xs font-semibold text-slate-500">{draft.settlementExpenses?.length || 0}</td>
                 <td className="p-3 text-[10px] font-semibold text-slate-400">{draft.updatedAt?.slice(0, 10) || "—"}</td>
-                <td className="p-3">
-                  <div className="flex justify-end gap-1">
-                    <Button size="sm" variant="outline" iconStart={Edit3} onClick={() => onContinue?.(draft)} className="border-amber-200 text-amber-700 hover:bg-amber-50">
-                      استكمال
-                    </Button>
-                    <Button size="sm" variant="danger" iconOnly iconStart={Trash2} aria-label="حذف المسودة" title="حذف المسودة" onClick={() => onDiscard?.(draft.id)} />
-                  </div>
-                </td>
+                {canManage && (
+                  <td className="p-3">
+                    <div className="flex justify-end gap-1">
+                      <Button size="sm" variant="outline" iconStart={Edit3} onClick={() => onContinue?.(draft)} className="border-amber-200 text-amber-700 hover:bg-amber-50">
+                        استكمال
+                      </Button>
+                      <Button size="sm" variant="danger" iconOnly iconStart={Trash2} aria-label="حذف المسودة" title="حذف المسودة" onClick={() => onDiscard?.(draft.id)} />
+                    </div>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

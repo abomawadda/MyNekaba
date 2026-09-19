@@ -13,6 +13,7 @@ export default function SettlementArchiveFilters({
   resultCount = 0,
   attachmentCount = 0,
   onOpenMigration,
+  canMigrate = false,
 }) {
   return (
     <FilterBar collapsedLabel="فلاتر الأرشيف" className="justify-end">
@@ -47,15 +48,17 @@ export default function SettlementArchiveFilters({
         ))}
       </select>
       <StatusBadge tone="info">النتائج: {resultCount.toLocaleString("ar-EG")}</StatusBadge>
-      <button
-        type="button"
-        onClick={onOpenMigration}
-        title="ترحيل المرفقات المحفوظة كنصوص إلى التخزين السحابي"
-        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 text-[10px] font-bold text-sky-700 transition-colors hover:bg-sky-100 dark:border-sky-800/40 dark:bg-sky-900/20 dark:text-sky-300"
-      >
-        <Download size={14} />
-        ترحيل المرفقات ({attachmentCount.toLocaleString("ar-EG")})
-      </button>
+      {canMigrate && (
+        <button
+          type="button"
+          onClick={onOpenMigration}
+          title="ترحيل المرفقات المحفوظة كنصوص إلى التخزين السحابي"
+          className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 text-[10px] font-bold text-sky-700 transition-colors hover:bg-sky-100 dark:border-sky-800/40 dark:bg-sky-900/20 dark:text-sky-300"
+        >
+          <Download size={14} />
+          ترحيل المرفقات ({attachmentCount.toLocaleString("ar-EG")})
+        </button>
+      )}
     </FilterBar>
   );
 }

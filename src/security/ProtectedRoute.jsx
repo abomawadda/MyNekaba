@@ -19,7 +19,8 @@ export default function ProtectedRoute({ children, permission, allowPublic = fal
   if (!isAuthenticated && !allowPublic) {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
-  if (permission && !can(permission)) {
+  const requiredPermissions = Array.isArray(permission) ? permission : [permission].filter(Boolean);
+  if (requiredPermissions.some((requiredPermission) => !can(requiredPermission))) {
     return <AccessDenied />;
   }
   return children;

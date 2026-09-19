@@ -7,6 +7,8 @@ import React, { useEffect, useState, useMemo } from "react";
 import { collection, doc, query, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../../app/providers/FirebaseProvider";
 import { useT } from "../../app/providers/ThemeProvider";
+import { useAuth } from "../../app/providers/AuthProvider";
+import { PERMISSIONS } from "../../security/permissions";
 import ArabicDatePicker from "../../ui/inputs/ArabicDatePicker";
 import BrandHeader from "../../ui/BrandHeader";
 import { getPrintBrandHeader, getPrintBrandStyles } from "../../utils/branding";
@@ -138,6 +140,9 @@ class ErrorBoundary extends React.Component {
 // ─────────────────────────────────────────────
 function TreasuryLedgerInner() {
   const T = useT();
+  const { can } = useAuth();
+  const canSaveMonthlyClose = can(PERMISSIONS.treasuryPost);
+  const canExportReports = can(PERMISSIONS.reportsExport);
   const [issuedChecks, setIssuedChecks] = useState([]);
   const [legacyTransactions, setLegacyTransactions] = useState([]);
   const [monthlySnapshots, setMonthlySnapshots] = useState([]);
@@ -234,6 +239,7 @@ function TreasuryLedgerInner() {
   }, [monthlySnapshots]);
 
   const saveMonthlySnapshot = async (close) => {
+    if (!canSaveMonthlyClose) return;
     if (!close?.period) return;
     setSavingClose(close.period);
     try {
@@ -362,6 +368,7 @@ function TreasuryLedgerInner() {
 
   // طباعة كشف الحساب
   const handlePrint = () => {
+    if (!canExportReports) return;
     const win = openPrintWindow("treasury-ledger", "width=1200,height=900");
     if (!win) return;
 
@@ -542,6 +549,7 @@ function TreasuryLedgerInner() {
 
   // تصدير البيانات
   const handleExport = async (format) => {
+    if (!canExportReports) return;
     const rows = ledgerData.events.map(e => ({
       "التاريخ": e.date,
       "النوع": getTypeLabel(e.type, e.subType),
@@ -600,7 +608,7 @@ function TreasuryLedgerInner() {
           <div className="overflow-x-auto">
             <table className="w-full text-right text-[10px]">
               <thead><tr className="bg-slate-50 dark:bg-slate-800/50 border-b">
-                {["الشهر", "الافتتاحي", "وارد", "منصرف", "الختامي", "الحركات", "لقطة محفوظة", ""].map((h, i) => <th key={i} className="p-2 font-black text-slate-500 whitespace-nowrap">{h}</th>)}
+                {["الشهر", "الافتتاحي", "وارد", "منصرف", "الختامي", "الحركات", "لقطة محفوظة", ...(canSaveMonthlyClose ? [""] : [])].map((h, i) => <th key={i} className="p-2 font-black text-slate-500 whitespace-nowrap">{h}</th>)}
               </tr></thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
                 {monthlyCloses.map((m) => {
@@ -615,15 +623,17 @@ function TreasuryLedgerInner() {
                       <td className="p-2 font-black whitespace-nowrap text-teal-700">{formatMoney(m.closing)}</td>
                       <td className="p-2 whitespace-nowrap">{m.count}</td>
                       <td className="p-2 whitespace-nowrap text-[9px] font-bold text-slate-400">{saved ? `محفوظة (${saved.computedAt ? String(saved.computedAt).slice(0, 10) : "—"})${matches ? "" : " — تختلف عن الحالية!"}` : "—"}</td>
-                      <td className="p-2 whitespace-nowrap">
-                        <button
-                          onClick={() => saveMonthlySnapshot(m)}
-                          disabled={savingClose === m.period}
-                          className="px-2.5 py-1 text-[9px] font-black bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-teal-100 hover:text-teal-700 disabled:opacity-50 transition-colors"
-                        >
-                          {savingClose === m.period ? "جارٍ الحفظ..." : "حفظ لقطة"}
-                        </button>
-                      </td>
+                      {canSaveMonthlyClose && (
+                        <td className="p-2 whitespace-nowrap">
+                          <button
+                            onClick={() => saveMonthlySnapshot(m)}
+                            disabled={savingClose === m.period}
+                            className="px-2.5 py-1 text-[9px] font-black bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-teal-100 hover:text-teal-700 disabled:opacity-50 transition-colors"
+                          >
+                            {savingClose === m.period ? "جارٍ الحفظ..." : "حفظ لقطة"}
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -651,22 +661,24 @@ function TreasuryLedgerInner() {
             <span className="text-[9px] text-slate-400 font-bold">إلى</span>
             <div className="w-28"><ArabicDatePicker label="" value={filterTo} onChange={setFilterTo} minVal={filterFrom} maxVal={getTodayISO()} /></div>
           </div>
-          {/* تصدير */}
-          <select
-            onChange={(e) => { const f = e.target.value; if (f) handleExport(f); e.target.value = ""; }}
-            disabled={ledgerData.events.length === 0}
-            className="px-4 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-xl font-black text-[10px] shadow-sm h-[38px] cursor-pointer appearance-none transition-all active:scale-95 disabled:opacity-50 border border-emerald-200"
-            style={{ direction: "ltr" }}
-          >
-            <option value="">تصدير</option>
-            <option value="xlsx">Excel (XLSX)</option>
-            <option value="json">JSON</option>
-          </select>
-          {/* طباعة */}
-          <button onClick={handlePrint} disabled={ledgerData.events.length === 0}
-            className="px-4 py-2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-xl font-black text-[10px] shadow-md flex items-center gap-1.5 h-[38px] transition-all active:scale-95 disabled:opacity-50">
-            <Printer size={13} /> طباعة
-          </button>
+          {canExportReports && (
+            <>
+              <select
+                onChange={(e) => { const f = e.target.value; if (f) handleExport(f); e.target.value = ""; }}
+                disabled={ledgerData.events.length === 0}
+                className="px-4 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-xl font-black text-[10px] shadow-sm h-[38px] cursor-pointer appearance-none transition-all active:scale-95 disabled:opacity-50 border border-emerald-200"
+                style={{ direction: "ltr" }}
+              >
+                <option value="">تصدير</option>
+                <option value="xlsx">Excel (XLSX)</option>
+                <option value="json">JSON</option>
+              </select>
+              <button onClick={handlePrint} disabled={ledgerData.events.length === 0}
+                className="px-4 py-2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-xl font-black text-[10px] shadow-md flex items-center gap-1.5 h-[38px] transition-all active:scale-95 disabled:opacity-50">
+                <Printer size={13} /> طباعة
+              </button>
+            </>
+          )}
         </div>
       </div>
 

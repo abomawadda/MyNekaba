@@ -52,6 +52,7 @@ export default function CheckbooksPage() {
   const canEdit = can("treasury.edit");
   const canApprove = can("treasury.approve");
   const canDelete = can("treasury.delete");
+  const canViewReports = can("reports.view");
 
   useEffect(() => subscribeCheckbooks(setBooks), []);
   useEffect(() => {
@@ -140,7 +141,7 @@ export default function CheckbooksPage() {
         secondaryActions={(
           <>
             <Button as="a" href="/treasury/checks" variant="outline" iconStart={BookCopy}>إدارة الشيكات</Button>
-            <Button as="a" href="/treasury/check-reports" variant="outline" iconStart={FileSpreadsheet}>التقارير</Button>
+            {canViewReports && <Button as="a" href="/treasury/check-reports" variant="outline" iconStart={FileSpreadsheet}>التقارير</Button>}
           </>
         )}
       />

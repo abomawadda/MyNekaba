@@ -2,6 +2,7 @@ import { AlertCircle, History, ReceiptText } from "lucide-react";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { Tabs } from "../../../ui/enterprise";
 import { canAccessSettlementDiagnostic } from "../settlementAuthorization";
+import { PERMISSIONS } from "../../../security/permissions";
 
 const tabLabels = {
   current: "تسوية شيك",
@@ -11,9 +12,10 @@ const tabLabels = {
 
 export default function SettlementWorkspaceTabs({ activeTab, onChange, openCount = 0 }) {
   const { can } = useAuth();
+  const canSettle = can(PERMISSIONS.treasurySettle);
   const canUseDiagnostic = canAccessSettlementDiagnostic(can);
   const tabs = [
-    {
+    ...(canSettle ? [{
       value: "current",
       label: (
         <span className="inline-flex items-center gap-1.5">
@@ -22,7 +24,7 @@ export default function SettlementWorkspaceTabs({ activeTab, onChange, openCount
           {openCount > 0 && <span className="num rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold text-white">{openCount}</span>}
         </span>
       ),
-    },
+    }] : []),
     {
       value: "archive",
       label: (

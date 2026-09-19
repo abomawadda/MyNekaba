@@ -919,8 +919,14 @@ export default function SettlementTab() {
   const T = useT();
   const { can } = useAuth();
   const [activeTab, setActiveTab] = useState("current");
+  const canSettle = can(PERMISSIONS.treasurySettle);
+  const canMigrate = can(PERMISSIONS.treasuryMigrate);
+  const canExportReports = can(PERMISSIONS.reportsExport);
   const canUseDiagnostic = canAccessSettlementDiagnostic(can);
-  const authorizedActiveTab = activeTab === "diagnostic" && !canUseDiagnostic ? "current" : activeTab;
+  const diagnosticAuthorizedActiveTab = activeTab === "diagnostic" && !canUseDiagnostic ? "current" : activeTab;
+  const authorizedActiveTab = diagnosticAuthorizedActiveTab === "current" && !canSettle
+    ? "archive"
+    : diagnosticAuthorizedActiveTab;
   const [issuedChecks, setIssuedChecks] = useState([]);
   const [legacyTransactions, setLegacyTransactions] = useState([]);
   const [employees, setEmployees] = useState([]);
@@ -969,6 +975,7 @@ export default function SettlementTab() {
   );
 
   const runAttachmentMigration = async () => {
+    if (!canMigrate) return;
     if (dataUrlHits.length === 0) return;
     if (!window.confirm(`سيتم رفع ${dataUrlHits.length} مرفقاً للسحابة أولاً، ولا تُمس المستندات إلا بعد نجاح الرفع كاملاً. متابعة؟`)) return;
     setMigrating(true);
@@ -1690,6 +1697,7 @@ export default function SettlementTab() {
   }, [txByDocId]);
 
   const printArchivedSettlementRow = useCallback((row) => {
+    if (!canExportReports) return;
     const settlement = row.record;
     printSettlementLocal({
       advanceTxn: settlement,
@@ -1703,7 +1711,7 @@ export default function SettlementTab() {
       bankDepositDate: settlement.bankDepositDate || "",
       bankDepositReference: settlement.bankDepositReference || "",
     });
-  }, [buildGroupedSettlementChecks]);
+  }, [buildGroupedSettlementChecks, canExportReports]);
 
   const selectedTxn = useMemo(
     () => currentTxnOptions.find((a) => toEntityId(a.id) === toEntityId(selAdvId)) || null,
@@ -2751,7 +2759,7 @@ export default function SettlementTab() {
       />
       <SettlementKpiStrip baseline={settlementBaseline} formatMoney={formatMoney} />
       {/* مودال تأكيد استرجاع الأرشيف المفقود */}
-      {showRecoveryConfirm && recoveryModalData && (
+      {canSettle && showRecoveryConfirm && recoveryModalData && (
         <div className="fixed inset-0 z-[999] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in">
           <div className={clsx("w-full max-w-md max-h-[92vh] overflow-y-auto p-6 rounded-3xl shadow-2xl border space-y-5 animate-in zoom-in-95", T.card)}>
             <div className="flex items-center gap-3 text-blue-600 border-b border-blue-100 pb-3">
@@ -2775,7 +2783,7 @@ export default function SettlementTab() {
         </div>
       )}
 
-      {settlementToDelete && (
+      {canSettle && settlementToDelete && (
         <div className="fixed inset-0 z-[999] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in">
           <div className={clsx("w-full max-w-md max-h-[92vh] overflow-y-auto p-6 rounded-3xl shadow-2xl border space-y-5 animate-in zoom-in-95", T.card)}>
             <div className="flex items-center gap-3 text-rose-600 border-b border-rose-100 pb-3">
@@ -2795,7 +2803,7 @@ export default function SettlementTab() {
         </div>
       )}
 
-      {expenseToDelete && (
+      {canSettle && expenseToDelete && (
         <div className="fixed inset-0 z-[999] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in">
           <div className={clsx("w-full max-w-sm max-h-[92vh] overflow-y-auto p-6 rounded-3xl shadow-2xl border space-y-5 animate-in zoom-in-95", T.card)}>
             <div className="flex items-center gap-3 text-rose-600 border-b border-rose-100 pb-3">
@@ -2815,7 +2823,7 @@ export default function SettlementTab() {
         </div>
       )}
 
-      {confirmModalData && (
+      {canSettle && confirmModalData && (
         <div className="fixed inset-0 z-[999] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in">
           <div className={clsx("w-full max-w-md max-h-[92vh] overflow-y-auto p-5 rounded-2xl shadow-2xl border space-y-5 animate-in zoom-in-95", T.card)}>
             <div className="flex items-center gap-3 text-teal-600 border-b border-slate-100 dark:border-slate-800 pb-3">
@@ -3355,6 +3363,7 @@ export default function SettlementTab() {
               resultCount={filteredArchivedSettlements.length}
               attachmentCount={dataUrlHits.length}
               onOpenMigration={() => { setMigrationReport(null); setShowMigration(true); }}
+              canMigrate={canMigrate}
             />
           </div>
 
@@ -3363,12 +3372,14 @@ export default function SettlementTab() {
               <div className="px-4 py-3 flex items-center gap-2 border-b border-rose-100 dark:border-rose-800/30">
                 <AlertTriangle size={14} className="text-rose-600" />
                 <h4 className="font-black text-[10px] uppercase tracking-widest text-rose-700 dark:text-rose-400">
-                  تسويات مسواة لا تظهر في الأرشيف ({hiddenSettledSettlements.length}) — احذفها أو أعد تعيينها ثم سوّها من جديد
+                  تسويات مسواة لا تظهر في الأرشيف ({hiddenSettledSettlements.length})
                 </h4>
-                <button onClick={handleHiddenResetAll} disabled={saving} className="mr-auto px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-black text-[10px] transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1 shrink-0">
-                  <RotateCcw size={12} /> إعادة تعيين الكل
-                </button>
-                {hiddenSettledSettlements.some((h) => h.isGrouped) && (
+                {canSettle && (
+                  <button onClick={handleHiddenResetAll} disabled={saving} className="mr-auto px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-black text-[10px] transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1 shrink-0">
+                    <RotateCcw size={12} /> إعادة تعيين الكل
+                  </button>
+                )}
+                {canSettle && hiddenSettledSettlements.some((h) => h.isGrouped) && (
                   <button onClick={handleUngroupAll} disabled={saving} className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-black text-[10px] transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1 shrink-0">
                     <RotateCcw size={12} /> فك المجمعة وإرجاع الشيكات مفتوحة
                   </button>
@@ -3391,13 +3402,13 @@ export default function SettlementTab() {
                         <td className="p-3 font-bold text-slate-500 whitespace-nowrap">{h.checkNum || "—"}</td>
                         <td className="p-3 text-[10px] font-bold text-rose-600 dark:text-rose-400 max-w-[230px] break-words">{h.reason}</td>
                         <td className="p-3 text-left whitespace-nowrap">
-                          {!h.isGrouped ? (
+                          {canSettle && !h.isGrouped ? (
                             <button onClick={() => handleHiddenReset(h.record)} disabled={saving} className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-black text-[10px] transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1">
                               <RotateCcw size={12} /> إعادة تعيين
                             </button>
-                          ) : (
+                          ) : h.isGrouped ? (
                             <span className="text-[9px] font-bold text-slate-400">يُعاد تعيينه من قائد المجموعة في الأرشيف</span>
-                          )}
+                          ) : null}
                         </td>
                       </tr>
                     ))}
@@ -3412,6 +3423,7 @@ export default function SettlementTab() {
             formatMoney={formatMoney}
             onContinue={continueDraft}
             onDiscard={handleDiscardDraftSettlement}
+            canManage={canSettle}
           />
 
           <SettlementArchiveTable
@@ -3424,11 +3436,13 @@ export default function SettlementTab() {
             onRecover={handleRecoverFromArchive}
             onDelete={setSettlementToDelete}
             onPrint={printArchivedSettlementRow}
+            canManage={canSettle}
+            canPrint={canExportReports}
           />
         </div>
       )}
 
-      {showMigration && (
+      {canMigrate && showMigration && (
         <div className="fixed inset-0 z-[999] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in">
           <div className={clsx("w-full max-w-lg max-h-[92vh] overflow-y-auto p-6 rounded-3xl shadow-2xl border space-y-4 animate-in zoom-in-95", T.card)}>
             <div className="flex items-center gap-3 text-sky-600 border-b border-sky-100 pb-3">

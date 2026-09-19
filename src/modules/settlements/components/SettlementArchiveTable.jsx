@@ -1,18 +1,18 @@
 import { Edit3, Printer, RotateCcw, Trash2 } from "lucide-react";
 import { EmptyState, IconButton, StatusBadge } from "../../../ui/enterprise";
 
-function SettlementActionButtons({ row, onEdit, onRecover, onDelete, onPrint }) {
+function SettlementActionButtons({ row, onEdit, onRecover, onDelete, onPrint, canManage, canPrint }) {
   return (
     <div className="flex items-center justify-end gap-1">
-      <IconButton iconStart={Edit3} title="تعديل التسوية" aria-label="تعديل التسوية" onClick={() => onEdit?.(row.record)} className="text-slate-500 hover:text-amber-600" />
-      <IconButton iconStart={RotateCcw} title="استرجاع من الأرشيف" aria-label="استرجاع من الأرشيف" onClick={() => onRecover?.(row.record)} className="text-slate-500 hover:text-blue-600" />
-      <IconButton iconStart={Trash2} title="حذف التسوية" aria-label="حذف التسوية" onClick={() => onDelete?.(row.record)} className="text-slate-500 hover:text-rose-600" />
-      <IconButton iconStart={Printer} title="طباعة التسوية" aria-label="طباعة التسوية" onClick={() => onPrint?.(row)} className="text-slate-500 hover:text-teal-600" />
+      {canManage && <IconButton iconStart={Edit3} title="تعديل التسوية" aria-label="تعديل التسوية" onClick={() => onEdit?.(row.record)} className="text-slate-500 hover:text-amber-600" />}
+      {canManage && <IconButton iconStart={RotateCcw} title="استرجاع من الأرشيف" aria-label="استرجاع من الأرشيف" onClick={() => onRecover?.(row.record)} className="text-slate-500 hover:text-blue-600" />}
+      {canManage && <IconButton iconStart={Trash2} title="حذف التسوية" aria-label="حذف التسوية" onClick={() => onDelete?.(row.record)} className="text-slate-500 hover:text-rose-600" />}
+      {canPrint && <IconButton iconStart={Printer} title="طباعة التسوية" aria-label="طباعة التسوية" onClick={() => onPrint?.(row)} className="text-slate-500 hover:text-teal-600" />}
     </div>
   );
 }
 
-export function SettlementMobileCard({ row, formatMoney, onEdit, onRecover, onDelete, onPrint }) {
+export function SettlementMobileCard({ row, formatMoney, onEdit, onRecover, onDelete, onPrint, canManage, canPrint }) {
   return (
     <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700/80 dark:bg-slate-800/70">
       <div className="flex items-start justify-between gap-3">
@@ -45,7 +45,7 @@ export function SettlementMobileCard({ row, formatMoney, onEdit, onRecover, onDe
           <StatusBadge tone="info">{row.typeLabel}</StatusBadge>
           {row.groupCount > 1 && <StatusBadge tone="info">مجموعة {row.groupCount} شيكات</StatusBadge>}
         </div>
-        <SettlementActionButtons row={row} onEdit={onEdit} onRecover={onRecover} onDelete={onDelete} onPrint={onPrint} />
+        <SettlementActionButtons row={row} onEdit={onEdit} onRecover={onRecover} onDelete={onDelete} onPrint={onPrint} canManage={canManage} canPrint={canPrint} />
       </div>
     </article>
   );
@@ -61,6 +61,8 @@ export default function SettlementArchiveTable({
   onRecover,
   onDelete,
   onPrint,
+  canManage = false,
+  canPrint = false,
 }) {
   if (!rows.length) {
     return (
@@ -82,6 +84,8 @@ export default function SettlementArchiveTable({
             onRecover={onRecover}
             onDelete={onDelete}
             onPrint={onPrint}
+            canManage={canManage}
+            canPrint={canPrint}
           />
         ))}
       </div>
@@ -90,7 +94,7 @@ export default function SettlementArchiveTable({
         <table className="table-enterprise w-full text-right">
           <thead className="border-b-2 border-slate-200 bg-slate-100/80 dark:border-slate-700 dark:bg-slate-800/50">
             <tr>
-              {["الاعتماد", "المسؤول والحالة", "التمويل", "متاح", "منصرف", "المتبقي", "إجراءات"].map((heading) => (
+              {["الاعتماد", "المسؤول والحالة", "التمويل", "متاح", "منصرف", "المتبقي", ...((canManage || canPrint) ? ["إجراءات"] : [])].map((heading) => (
                 <th key={heading} className="p-3 text-[11px] font-bold text-slate-500">
                   {heading}
                 </th>
@@ -121,9 +125,11 @@ export default function SettlementArchiveTable({
                   <p className="num text-sm font-bold text-emerald-600">{formatMoney(row.remainingAmount)}</p>
                   <p className="mt-1 text-[10px] font-semibold text-slate-400">{row.returnLabel}</p>
                 </td>
-                <td className="p-3">
-                  <SettlementActionButtons row={row} onEdit={onEdit} onRecover={onRecover} onDelete={onDelete} onPrint={onPrint} />
-                </td>
+                {(canManage || canPrint) && (
+                  <td className="p-3">
+                    <SettlementActionButtons row={row} onEdit={onEdit} onRecover={onRecover} onDelete={onDelete} onPrint={onPrint} canManage={canManage} canPrint={canPrint} />
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

@@ -158,7 +158,7 @@ export const ROUTE_PERMISSIONS = {
   "/treasury/settlements": PERMISSIONS.treasuryView,
   "/treasury/checkbooks": PERMISSIONS.treasuryView,
   "/treasury/checks": PERMISSIONS.treasuryView,
-  "/treasury/check-reports": PERMISSIONS.reportsView,
+  "/treasury/check-reports": [PERMISSIONS.treasuryView, PERMISSIONS.reportsView],
   "/treasury/collections": PERMISSIONS.treasuryView,
   "/reports": PERMISSIONS.reportsView,
   "/importer": PERMISSIONS.settingsImport,
@@ -213,7 +213,8 @@ export function canAccessRoute(user, pathname = "") {
     .find(([routePrefix]) => pathname === routePrefix || pathname.startsWith(`${routePrefix}/`));
 
   if (!matchedEntry) return true;
-  return hasPermission(user, matchedEntry[1]);
+  const requiredPermissions = Array.isArray(matchedEntry[1]) ? matchedEntry[1] : [matchedEntry[1]];
+  return requiredPermissions.every((permission) => hasPermission(user, permission));
 }
 
 export function getDataScope(user, resource) {

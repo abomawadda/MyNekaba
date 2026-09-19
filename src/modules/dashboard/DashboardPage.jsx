@@ -41,6 +41,7 @@ import {
   normalizeRequiresSettlement,
 } from "../treasury/helpers/issuedChecks";
 import { TREASURY_OPENING_BALANCE as OPENING_BALANCE } from "../treasury/helpers/financeLedger";
+import { PERMISSIONS } from "../../security/permissions";
 
 const DIRECT_LEDGER_TYPES = ["deposit", "refund", "subs", "bank_charge"];
 const BOARD_ROLES = ["رئيس المجلس", "الأمين العام", "أمين الصندوق", "عضو مجلس إدارة"];
@@ -212,7 +213,8 @@ export default function DashboardPage() {
   const { user, can } = useAuth();
   const { openEmployeeModal } = useEmployeeModal();
 
-  const canFinance = can("/treasury/admin") || can("/treasury/ledger") || can("/treasury/settlements") || can("/treasury/checks");
+  const canFinance = can(PERMISSIONS.treasuryView);
+  const canCreateFinance = canFinance && can(PERMISSIONS.treasuryCreate);
   const canEmployees = can("/employees");
   const canBoard = can("/board");
   const canActivities = can("/activities/master") || can("/activities/bookings");
@@ -347,13 +349,13 @@ export default function DashboardPage() {
   const quickActions = useMemo(() => {
     return [
       canEmployees ? { to: "/employees", label: "إدارة الأعضاء", description: "بحث وإضافة وتعديل", icon: Users, tone: "info" } : null,
-      canFinance ? { to: "/treasury/admin", label: "إصدار سند", description: "الخزينة والشيكات", icon: PlusCircle, tone: "success" } : null,
+      canCreateFinance ? { to: "/treasury/admin", label: "إصدار سند", description: "الخزينة والشيكات", icon: PlusCircle, tone: "success" } : null,
       canFinance ? { to: "/treasury/settlements", label: "التسويات", description: "متابعة العهد المفتوحة", icon: ReceiptText, tone: "warning" } : null,
       canActivities ? { to: "/activities/master", label: "الفعاليات", description: "إدارة الأنشطة والحجز", icon: CalendarDays, tone: "brand" } : null,
       canReports ? { to: "/reports", label: "مركز التقارير", description: "تقارير تنفيذية ومخصصة", icon: FileText, tone: "neutral" } : null,
       canImporter ? { to: "/importer", label: "استيراد البيانات", description: "أدوات التشغيل", icon: UploadCloud, tone: "neutral" } : null,
     ].filter(Boolean).slice(0, 6);
-  }, [canActivities, canEmployees, canFinance, canImporter, canReports]);
+  }, [canActivities, canCreateFinance, canEmployees, canFinance, canImporter, canReports]);
 
   const todayLabel = useMemo(() => new Date().toLocaleDateString("ar-EG", { weekday: "long", year: "numeric", month: "long", day: "numeric" }), []);
 

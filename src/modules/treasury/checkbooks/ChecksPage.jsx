@@ -48,6 +48,7 @@ export default function ChecksPage() {
   const canCreate = can("treasury.create");
   const canEdit = can("treasury.edit");
   const canReview = can("treasury.settle") || can("treasury.post");
+  const canViewReports = can("reports.view");
 
   useEffect(() => subscribeCheckbooks(setBooks), []);
   useEffect(() => {
@@ -176,7 +177,7 @@ export default function ChecksPage() {
         secondaryActions={(
           <>
             <Button as="a" href="/treasury/checkbooks" variant="outline" iconStart={BookCopy}>دفاتر الشيكات</Button>
-            <Button as="a" href="/treasury/check-reports" variant="outline" iconStart={FileSpreadsheet}>التقارير</Button>
+            {canViewReports && <Button as="a" href="/treasury/check-reports" variant="outline" iconStart={FileSpreadsheet}>التقارير</Button>}
           </>
         )}
       />
