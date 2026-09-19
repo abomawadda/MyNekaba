@@ -14,6 +14,7 @@ import {
   deleteDoc, serverTimestamp, orderBy, where
 } from "firebase/firestore";
 import { db } from "../../app/providers/FirebaseProvider";
+import { useAuth } from "../../app/providers/AuthProvider";
 import { useT } from "../../app/providers/ThemeProvider";
 import ArabicDatePicker from "../../ui/inputs/ArabicDatePicker";
 import { Button, EmptyState, FilterBar, LoadingState, PageHeader, SearchInput, StatCard as EnterpriseStatCard, StatusBadge, getModuleIcon } from "../../ui/enterprise";
@@ -28,6 +29,10 @@ import {
   Info, AlertTriangle, MapPin
 } from "lucide-react";
 import clsx from "clsx";
+import {
+  canManageActivities,
+  requireEventManagementPermission,
+} from "./activityAuthorization";
 
 const DEVICE_EVENT_TYPE = "عرض أجهزة وموبايل";
 const EVENT_TYPES = [DEVICE_EVENT_TYPE, "رحلة ترفيهية", "رحلة تثقيفية", "حفل إفطار", "مسابقة ثقافية", "مؤتمر/ندوة", "نشاط رياضي", "احتفالية", "أخرى"];
@@ -173,6 +178,7 @@ function FormField({ label, required, children }) {
 
 export default function EventsMaster() {
   const T = useT();
+  const { can } = useAuth();
   const [events, setEvents] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [bookingsMap, setBookingsMap] = useState({});
@@ -188,6 +194,11 @@ export default function EventsMaster() {
   const [typeFilter, setTypeFilter] = useState("all");
 
   const showToast = useCallback((msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 4000); }, []);
+  const canManageEvents = canManageActivities(can);
+  const requireEventManagement = useCallback(() => requireEventManagementPermission(
+    can,
+    (message) => showToast(message, "error")
+  ), [can, showToast]);
 
   useEffect(() => {
     const unsubEvents = onSnapshot(query(collection(db, "events"), orderBy("date", "asc")), snap => {
@@ -247,6 +258,7 @@ export default function EventsMaster() {
   }, [events, searchQ, statusFilter, typeFilter]);
 
   const handleSaveEvent = async (e) => {
+    if (!requireEventManagement()) return;
     e.preventDefault();
     if (!formData.title?.trim() || !formData.date || !formData.capacity) return showToast("برجاء إكمال البيانات الأساسية", "error");
     if (formData.bookingStart > formData.bookingEnd) return showToast("تاريخ بدء الحجز يجب أن يسبق أو يساوي تاريخ الإغلاق", "error");
@@ -289,6 +301,7 @@ export default function EventsMaster() {
   };
 
   const handleDelete = async (ev) => {
+    if (!requireEventManagement()) return;
     const bks = (bookingsMap[ev.id] || []).filter(b => b.status === "confirmed");
     if (bks.length > 0) return showToast(`لا يمكن حذف الفعالية — يوجد ${bks.length} حجز مؤكد`, "error");
     if (!window.confirm(`هل أنت متأكد من حذف فعالية "${ev.title}" نهائياً؟`)) return;
@@ -297,7 +310,14 @@ export default function EventsMaster() {
 
   const closeModal = () => { setIsModalOpen(false); setEditId(null); setFormData(INITIAL_FORM); };
 
+  const openCreate = () => {
+    if (!requireEventManagement()) return;
+    closeModal();
+    setIsModalOpen(true);
+  };
+
   const openEdit = (event) => {
+    if (!requireEventManagement()) return;
     setFormData({
       ...event,
       supervisors: Array.isArray(event.supervisors) ? event.supervisors : (event.supervisors ? [event.supervisors] : [])
@@ -329,7 +349,7 @@ export default function EventsMaster() {
         actions={(
           <div className="flex flex-wrap gap-2">
             <Button variant="secondary" size="sm" iconStart={BarChart3} onClick={() => printFinancialReport(events, bookingsMap)}>التقرير المالي</Button>
-            <Button size="sm" iconStart={Plus} onClick={() => { closeModal(); setIsModalOpen(true); }}>فعالية جديدة</Button>
+            {canManageEvents && <Button size="sm" iconStart={Plus} onClick={openCreate}>فعالية جديدة</Button>}
           </div>
         )}
       />
@@ -339,7 +359,7 @@ export default function EventsMaster() {
         </div>
       )}
 
-      {isModalOpen && (
+      {canManageEvents && isModalOpen && (
         <div className="fixed inset-0 z-[999] flex items-center justify-center bg-slate-900/70 backdrop-blur-md p-4 animate-in fade-in">
           <div className={clsx("w-full max-w-2xl rounded-3xl shadow-2xl border animate-in zoom-in-95 overflow-hidden", T.card)}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-l from-indigo-50 to-transparent dark:from-indigo-900/10">
@@ -456,9 +476,11 @@ export default function EventsMaster() {
           <button onClick={() => printFinancialReport(events, bookingsMap)} className="px-4 py-2.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-xl font-black text-xs flex items-center gap-1.5 transition-all">
             <BarChart3 size={15} /> التقرير المالي
           </button>
-          <button onClick={() => { closeModal(); setIsModalOpen(true); }} className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-black text-xs shadow-md active:scale-95 transition-all flex items-center gap-2">
-            <Plus size={15} /> فعالية جديدة
-          </button>
+          {canManageEvents && (
+            <button onClick={openCreate} className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-black text-xs shadow-md active:scale-95 transition-all flex items-center gap-2">
+              <Plus size={15} /> فعالية جديدة
+            </button>
+          )}
         </div>
       </div>
 
@@ -571,8 +593,12 @@ export default function EventsMaster() {
                     </div>
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                       <button onClick={() => printEventDetail(event, bks)} className="p-1.5 bg-slate-100 text-slate-500 hover:bg-indigo-500 hover:text-white rounded-lg transition-colors"><Printer size={13} /></button>
-                      <button onClick={() => openEdit(event)} className="p-1.5 bg-sky-100 text-sky-600 hover:bg-sky-500 hover:text-white rounded-lg transition-colors"><Edit size={13} /></button>
-                      <button onClick={() => handleDelete(event)} className="p-1.5 bg-rose-100 text-rose-600 hover:bg-rose-500 hover:text-white rounded-lg transition-colors"><Trash2 size={13} /></button>
+                      {canManageEvents && (
+                        <>
+                          <button onClick={() => openEdit(event)} className="p-1.5 bg-sky-100 text-sky-600 hover:bg-sky-500 hover:text-white rounded-lg transition-colors"><Edit size={13} /></button>
+                          <button onClick={() => handleDelete(event)} className="p-1.5 bg-rose-100 text-rose-600 hover:bg-rose-500 hover:text-white rounded-lg transition-colors"><Trash2 size={13} /></button>
+                        </>
+                      )}
                     </div>
                   </div>
 
