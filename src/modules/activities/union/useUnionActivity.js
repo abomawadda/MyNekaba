@@ -6,43 +6,60 @@ import {
 import { db } from "../../../app/providers/FirebaseProvider";
 import { logAuditEvent } from "../../../utils/auditLog";
 import { isEligibleForBenefit } from "../../../utils/memberBenefits";
+import {
+  canManageBookings,
+  requireBookingManagementPermission,
+} from "../bookingAuthorization";
+import {
+  canManageActivities,
+  requireEventManagementPermission,
+} from "../activityAuthorization";
 
 const getTodayISO = () => new Date().toISOString().split("T")[0];
+const EMPTY_LIST = Object.freeze([]);
 
-export default function useUnionActivity(config) {
+export default function useUnionActivity(config, { can } = {}) {
   const [events, setEvents] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
+  const bookingManagementAllowed = canManageBookings(can);
+  const eventManagementAllowed = canManageActivities(can);
 
   useEffect(() => {
-    const unsubs = [
-      onSnapshot(query(collection(db, "events")), (s) => {
+    const unsubs = [];
+    unsubs.push(onSnapshot(query(collection(db, "events")), (s) => {
         const all = s.docs.map((d) => ({ id: d.id, ...d.data() }));
         const mine = all
           .filter((e) => e.unionCategory === config.id || (!e.unionCategory && config.includeLegacyTypes && e.type === config.eventType))
           .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
         setEvents(mine);
-      }),
-      onSnapshot(query(collection(db, "event_bookings")), (s) => {
-        setBookings(s.docs.map((d) => ({ id: d.id, ...d.data() })));
-      }),
-      onSnapshot(query(collection(db, "employees")), (s) => {
-        setEmployees(s.docs.map((d) => ({ id: d.id, ...d.data() })));
         setLoading(false);
-      }),
-    ];
+      }));
+    if (bookingManagementAllowed) {
+      unsubs.push(onSnapshot(query(collection(db, "event_bookings")), (s) => {
+        setBookings(s.docs.map((d) => ({ id: d.id, ...d.data() })));
+      }));
+    }
+    if (bookingManagementAllowed || eventManagementAllowed) {
+      unsubs.push(onSnapshot(query(collection(db, "employees")), (s) => {
+        setEmployees(s.docs.map((d) => ({ id: d.id, ...d.data() })));
+      }));
+    }
     return () => unsubs.forEach((u) => u());
-  }, [config.id, config.eventType, config.includeLegacyTypes]);
+  }, [bookingManagementAllowed, config.id, config.eventType, config.includeLegacyTypes, eventManagementAllowed]);
+
+  const scopedBookings = bookingManagementAllowed ? bookings : EMPTY_LIST;
+  const scopedEmployees = bookingManagementAllowed || eventManagementAllowed ? employees : EMPTY_LIST;
 
   const bookingsByEvent = useMemo(() => {
     const map = {};
-    bookings.forEach((b) => {
+    scopedBookings.forEach((b) => {
       if (!map[b.eventId]) map[b.eventId] = [];
       map[b.eventId].push(b);
     });
     return map;
-  }, [bookings]);
+  }, [scopedBookings]);
 
   const stats = useMemo(() => {
     let confirmedPax = 0, revenue = 0, support = 0;
@@ -57,6 +74,7 @@ export default function useUnionActivity(config) {
   }, [events, bookingsByEvent]);
 
   const saveEvent = async (data, editId = null) => {
+    if (!requireEventManagementPermission(can)) throw new Error("لا تملك صلاحية إدارة الفعاليات");
     const payload = {
       ...data,
       unionCategory: config.id,
@@ -78,6 +96,7 @@ export default function useUnionActivity(config) {
   };
 
   const deleteEventGuarded = async (event) => {
+    if (!requireEventManagementPermission(can)) throw new Error("لا تملك صلاحية إدارة الفعاليات");
     const confirmed = (bookingsByEvent[event.id] || []).filter((b) => b.status === "confirmed").length;
     if (confirmed > 0) throw new Error("لا يمكن حذف فعالية بها حجوزات مؤكدة.");
     await deleteDoc(doc(db, "events", event.id));
@@ -92,6 +111,7 @@ export default function useUnionActivity(config) {
   };
 
   const addBooking = async (event, member, companions = [], payments = {}) => {
+    if (!requireBookingManagementPermission(can)) throw new Error("لا تملك صلاحية إدارة الحجوزات");
     const confirmedPax = (bookingsByEvent[event.id] || [])
       .filter((b) => b.status === "confirmed")
       .reduce((s, b) => s + Number(b.totalPax || 1), 0);
@@ -159,6 +179,7 @@ export default function useUnionActivity(config) {
   };
 
   const confirmBooking = async (booking) => {
+    if (!requireBookingManagementPermission(can)) throw new Error("لا تملك صلاحية إدارة الحجوزات");
     const batch = writeBatch(db);
     batch.set(doc(db, "event_bookings", booking.id), {
       status: "confirmed",
@@ -181,6 +202,7 @@ export default function useUnionActivity(config) {
   };
 
   const cancelBooking = async (booking, reason = "") => {
+    if (!requireBookingManagementPermission(can)) throw new Error("لا تملك صلاحية إدارة الحجوزات");
     const wasConfirmed = booking.status === "confirmed";
     await updateDoc(doc(db, "event_bookings", booking.id), {
       status: "cancelled",
@@ -201,7 +223,7 @@ export default function useUnionActivity(config) {
   };
 
   return {
-    events, bookings, bookingsByEvent, employees, loading, stats,
+    events, bookings: scopedBookings, bookingsByEvent, employees: scopedEmployees, loading, stats,
     saveEvent, deleteEventGuarded, addBooking, confirmBooking, cancelBooking, calcCost,
   };
 }

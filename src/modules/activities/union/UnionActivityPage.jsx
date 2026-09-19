@@ -26,6 +26,11 @@ import { getPrintBrandHeader, getPrintBrandStyles } from "../../../utils/brandin
 import { escapeHtml } from "../../../utils/escapeHtml";
 import { formatMoney } from "../../../utils/numberFormat";
 import useUnionActivity from "./useUnionActivity";
+import {
+  canExportSensitiveBookings,
+  canManageBookings,
+  requireSensitiveBookingExportPermission,
+} from "../bookingAuthorization";
 
 const inputCls = "w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-teal-500/20";
 
@@ -69,7 +74,9 @@ const getConfirmedPax = (items = []) =>
 
 const getEventStatus = (event, eventBookings = [], today = getTodayISO()) => {
   const capacity = Number(event.capacity || 0);
-  const confirmedPax = getConfirmedPax(eventBookings);
+  const confirmedPax = eventBookings.length > 0
+    ? getConfirmedPax(eventBookings)
+    : Number(event.bookedCount || 0);
   if (capacity > 0 && confirmedPax >= capacity) return "full";
   if (event.date && event.date < today) return "completed";
   if (event.bookingEnd && event.bookingEnd < today) return "closed";
@@ -121,10 +128,13 @@ export default function UnionActivityPage({ config }) {
   const T = useT();
   const { can } = useAuth();
   const canManage = can(PERMISSIONS.activitiesManage);
+  const canManageBookingOps = canManageBookings(can);
+  const canExportBookings = canExportSensitiveBookings(can);
+  const canViewActivityFinance = can(PERMISSIONS.reportsView) === true;
   const {
     events, bookings, bookingsByEvent, employees, loading, stats,
     saveEvent, deleteEventGuarded, addBooking, confirmBooking, cancelBooking, calcCost,
-  } = useUnionActivity(config);
+  } = useUnionActivity(config, { can });
 
   const [showEventModal, setShowEventModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
@@ -168,7 +178,9 @@ export default function UnionActivityPage({ config }) {
 
   const eventRows = useMemo(() => events.map((event) => {
     const rowBookings = bookingsByEvent[event.id] || [];
-    const confirmedPax = getConfirmedPax(rowBookings);
+    const confirmedPax = rowBookings.length > 0
+      ? getConfirmedPax(rowBookings)
+      : Number(event.bookedCount || 0);
     const capacity = Number(event.capacity || 0);
     const status = getEventStatus(event, rowBookings);
     return {
@@ -280,6 +292,7 @@ export default function UnionActivityPage({ config }) {
   };
 
   const handlePrintManifest = () => {
+    if (!requireSensitiveBookingExportPermission(can, (message) => alert(message))) return false;
     if (!selectedEvent) return;
     const confirmed = eventBookings.filter((b) => b.status === "confirmed");
     const rowsHtml = confirmed.map((b, i) => `
@@ -301,6 +314,7 @@ export default function UnionActivityPage({ config }) {
       <tbody>${rowsHtml || `<tr><td colspan="5" style="text-align:center;padding:20px">لا توجد حجوزات مؤكدة</td></tr>`}</tbody></table>
       <script>window.onload=()=>setTimeout(()=>window.print(),500);</script></body></html>`);
     win.document.close();
+    return true;
   };
 
   if (loading) {
@@ -351,12 +365,12 @@ export default function UnionActivityPage({ config }) {
 
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <StatCard label="الفعاليات" value={stats.events} sub={`${displayedEvents.length} ظاهرة الآن`} icon={Layers3} tone="brand" />
-        <StatCard label="أفراد مؤكدون" value={stats.confirmedPax} sub={`${openEvents} فعالية متاحة`} icon={CheckCircle2} tone="success" />
-        <StatCard label="إيراد محصل" value={formatMoney(stats.revenue)} sub="حسب الحجوزات المؤكدة" icon={Ticket} tone="info" />
-        <StatCard label="دعم الأعضاء" value={formatMoney(stats.support)} sub={`${availableSeats} مقعد متاح`} icon={CalendarDays} tone="warning" />
+        {canManageBookingOps && <StatCard label="أفراد مؤكدون" value={stats.confirmedPax} sub={`${openEvents} فعالية متاحة`} icon={CheckCircle2} tone="success" />}
+        {canManageBookingOps && canViewActivityFinance && <StatCard label="إيراد محصل" value={formatMoney(stats.revenue)} sub="حسب الحجوزات المؤكدة" icon={Ticket} tone="info" />}
+        {canViewActivityFinance && <StatCard label="دعم الأعضاء" value={formatMoney(stats.support)} sub={`${availableSeats} مقعد متاح`} icon={CalendarDays} tone="warning" />}
       </div>
 
-      {config.installmentsOnly ? (
+      {config.installmentsOnly ? (canManageBookingOps ? (
         <div className={clsx("rounded-2xl border shadow-sm overflow-hidden", T.card)}>
           <div className="p-4 border-b font-black text-sm">الأقساط المستحقة ({outstanding.length})</div>
           <div className="overflow-x-auto">
@@ -382,7 +396,7 @@ export default function UnionActivityPage({ config }) {
             </table>
           </div>
         </div>
-      ) : (
+      ) : <EmptyState title="لا تملك صلاحية عرض أقساط الحجوزات" hint="تتطلب هذه البيانات صلاحية إدارة الحجوزات." />) : (
         <>
           <div className={clsx("rounded-2xl border shadow-sm overflow-hidden", T.card)}>
             <div className="p-4 border-b flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -402,11 +416,11 @@ export default function UnionActivityPage({ config }) {
             <div className="overflow-x-auto">
               <table className="w-full text-right text-[11px]">
                 <thead><tr className="bg-slate-50 dark:bg-slate-800/50 border-b">
-                  {["العنوان", "الحالة", "التاريخ", "المكان", "السعة", "سعر العضو", "الدعم", "تفاصيل مميزة", "إجراءات"].map((h, i) => <th key={i} className="p-2.5 font-black text-slate-500 whitespace-nowrap">{h}</th>)}
+                  {["العنوان", "الحالة", "التاريخ", "المكان", "السعة", ...(canViewActivityFinance ? ["سعر العضو", "الدعم"] : []), "تفاصيل مميزة", "إجراءات"].map((h, i) => <th key={i} className="p-2.5 font-black text-slate-500 whitespace-nowrap">{h}</th>)}
                 </tr></thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
                   {displayedEvents.length === 0 ? (
-                    <tr><td colSpan={9} className="p-8"><EmptyState title="لا توجد فعاليات مطابقة" hint="غيّر البحث أو حالة الفلترة لعرض نتائج أخرى." /></td></tr>
+                    <tr><td colSpan={canViewActivityFinance ? 9 : 7} className="p-8"><EmptyState title="لا توجد فعاليات مطابقة" hint="غيّر البحث أو حالة الفلترة لعرض نتائج أخرى." /></td></tr>
                   ) : displayedEvents.map((e) => {
                     const bks = bookingsByEvent[e.id] || [];
                     const details = (config.extraFields || [])
@@ -420,8 +434,8 @@ export default function UnionActivityPage({ config }) {
                         <td className="p-2 whitespace-nowrap">{e.date || "—"}</td>
                         <td className="p-2 max-w-[160px] truncate">{e.location || "—"}</td>
                         <td className="p-2 whitespace-nowrap">{e.confirmedPax}/{e.capacity || 0}</td>
-                        <td className="p-2 whitespace-nowrap">{e.isFree ? "مجاني" : formatMoney(e.memberPrice)}</td>
-                        <td className="p-2 whitespace-nowrap">{formatMoney(e.memberSupportValue)}</td>
+                        {canViewActivityFinance && <td className="p-2 whitespace-nowrap">{e.isFree ? "مجاني" : formatMoney(e.memberPrice)}</td>}
+                        {canViewActivityFinance && <td className="p-2 whitespace-nowrap">{formatMoney(e.memberSupportValue)}</td>}
                         <td className="p-2 min-w-[180px]">
                           <div className="flex flex-wrap gap-1">
                             {details.length === 0 ? <span className="text-slate-400">—</span> : details.map((item) => (
@@ -432,7 +446,7 @@ export default function UnionActivityPage({ config }) {
                           </div>
                         </td>
                         <td className="p-2 whitespace-nowrap"><div className="flex gap-1">
-                          <button onClick={() => setSelectedEventId(e.id)} className="px-2.5 py-1 text-[10px] font-black bg-teal-600 text-white rounded-lg">الحجوزات ({bks.length})</button>
+                          {canManageBookingOps && <button onClick={() => setSelectedEventId(e.id)} className="px-2.5 py-1 text-[10px] font-black bg-teal-600 text-white rounded-lg">الحجوزات ({bks.length})</button>}
                           {canManage && <button onClick={() => openEditEvent(e)} className="p-1.5 text-slate-400 hover:text-amber-600"><Edit3 size={13} /></button>}
                           {canManage && <button onClick={() => handleDeleteEvent(e)} className="p-1.5 text-slate-400 hover:text-rose-600"><Trash2 size={13} /></button>}
                         </div></td>
@@ -444,7 +458,7 @@ export default function UnionActivityPage({ config }) {
             </div>
           </div>
 
-          {selectedEvent && (
+          {canManageBookingOps && selectedEvent && (
             <div className={clsx("rounded-2xl border shadow-sm overflow-hidden", T.card)}>
               <div className="p-4 border-b flex flex-wrap justify-between items-center gap-3">
                 <div>
@@ -457,7 +471,7 @@ export default function UnionActivityPage({ config }) {
                       <option key={value} value={value}>{label}</option>
                     ))}
                   </select>
-                  <Button variant="secondary" iconStart={Printer} onClick={handlePrintManifest}>طباعة الكشف</Button>
+                  {canExportBookings && <Button variant="secondary" iconStart={Printer} onClick={handlePrintManifest}>طباعة الكشف</Button>}
                 </div>
               </div>
               <div className="border-b bg-slate-50/60 p-4 dark:bg-slate-800/20">
@@ -489,7 +503,7 @@ export default function UnionActivityPage({ config }) {
                   </div>
                 )}
               </div>
-              {canManage && (
+              {canManageBookingOps && (
                 <div className="p-4 border-b grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-800/20">
                   <div className="relative">
                     <label className="text-[10px] font-black text-slate-400">بحث عن عضو (اسم أو كود)</label>
@@ -538,7 +552,7 @@ export default function UnionActivityPage({ config }) {
                         <td className="p-2 whitespace-nowrap">{formatMoney(b.totalCost)}</td>
                         <td className="p-2 max-w-[180px] truncate">{b.paymentSummary || "—"}</td>
                         <td className="p-2 whitespace-nowrap"><StatusBadge status={b.status}>{b.status === "confirmed" ? "مؤكد" : b.status === "pending" ? "معلق" : "ملغي"}</StatusBadge></td>
-                        <td className="p-2 whitespace-nowrap">{canManage && (
+                        <td className="p-2 whitespace-nowrap">{canManageBookingOps && (
                           <div className="flex gap-1">
                             {b.status === "pending" && <button onClick={() => confirmBooking(b)} className="px-2.5 py-1 text-[10px] font-black bg-emerald-600 text-white rounded-lg">تأكيد</button>}
                             {b.status !== "cancelled" && <button onClick={() => { const r = window.prompt("سبب الإلغاء؟", ""); if (r !== null) cancelBooking(b, r); }} className="px-2.5 py-1 text-[10px] font-black bg-rose-50 text-rose-600 rounded-lg">إلغاء</button>}

@@ -35,6 +35,16 @@ import {
 } from "../../utils/memberBenefits";
 import { sortBoardMembersUnified } from "../board/boardMembershipRules";
 import {
+  canExportSensitiveBookings,
+  canManageBookings as resolveCanManageBookings,
+  getBookingOwnerIds,
+  getPrimaryBookingOwnerId,
+  isOwnBooking,
+  requireBookingManagementPermission,
+  requireOwnBookingTarget,
+  requireSensitiveBookingExportPermission,
+} from "./bookingAuthorization";
+import {
   Ticket, Users, CheckCircle2, AlertCircle, Search,
   CreditCard, Printer, Copy, X, Banknote, Smartphone, Receipt,
   ShieldAlert, Trash2, Plus, UserX, UserCheck, BarChart3,
@@ -76,9 +86,10 @@ const parseNationalID = (nid) => {
 };
 
 // ── طباعة كشف الحضور ──
-const printManifest = (event, bookings) => {
+const printManifest = (event, bookings, authorize) => {
+  if (typeof authorize !== "function" || authorize() !== true) return false;
   const win = openPrintWindow("event-manifest", "width=1100,height=850");
-  if (!win) return;
+  if (!win) return false;
   const confirmed = bookings.filter(b => b.status === "confirmed")
     .sort((a, b) => String(a.memberId || "").localeCompare(String(b.memberId || ""), "ar", { numeric: true }));
   const totalPax = confirmed.reduce((s, b) => s + Number(b.totalPax || 1), 0);
@@ -138,21 +149,26 @@ const printManifest = (event, bookings) => {
   <div class="sigs"><div class="sig">توقيع المشرف<div style="height:40px"></div></div><div class="sig">المراجعة<div style="height:40px"></div></div><div class="sig">يعتمد أمين الصندوق<div style="height:40px"></div></div></div>
   <script>window.onload=()=>setTimeout(()=>window.print(),500);</script></body></html>`);
   win.document.close();
+  return true;
 };
 
 export default function EventBookings() {
   const T = useT();
-  const { user } = useAuth();
-
-  const isMemberView = user?.role === "member";
-  const ownKeys = useMemo(
-    () => [user?.employeeId, user?.employeeCode, user?.id, user?.phone].filter(Boolean).map(String),
-    [user]
-  );
-  const isOwnBooking = useCallback(
-    (b) => [b.memberId, b.memberName].filter(Boolean).map(String).some((v) => ownKeys.includes(v)),
-    [ownKeys]
-  );
+  const { user, can } = useAuth();
+  const canManageBookings = resolveCanManageBookings(can);
+  const canExportBookings = canExportSensitiveBookings(can);
+  const ownerIds = useMemo(() => getBookingOwnerIds(user), [user]);
+  const canCreateBookings = canManageBookings || ownerIds.length > 0;
+  const primaryOwnerId = useMemo(() => getPrimaryBookingOwnerId(user), [user]);
+  const fallbackOwnMember = useMemo(() => primaryOwnerId ? ({
+    id: user?.employeeId || primaryOwnerId,
+    jobId: primaryOwnerId,
+    employeeCode: user?.employeeCode || primaryOwnerId,
+    name: user?.fullName || user?.displayName || "عضو",
+    phone: user?.phone || "",
+    email: user?.email || "",
+    membershipStatus: user?.membershipStatus || user?.title || "",
+  }) : null, [primaryOwnerId, user]);
 
   // بيانات
   const [events, setEvents] = useState([]);
@@ -193,18 +209,37 @@ export default function EventBookings() {
       const evs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       evs.sort((a, b) => a.date.localeCompare(b.date));
       setEvents(evs);
-    });
-    const unsubMembers = onSnapshot(query(collection(db, "employees")), snap => {
-      setMembers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setLoading(false);
     });
+    let unsubMembers = () => {};
+    if (canManageBookings) {
+      unsubMembers = onSnapshot(query(collection(db, "employees")), snap => {
+        setMembers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      });
+    } else if (ownerIds.length > 0) {
+      unsubMembers = onSnapshot(
+        query(collection(db, "employees"), where("jobId", "in", ownerIds)),
+        snap => {
+          const scopedMembers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          setMembers(scopedMembers.length > 0 ? scopedMembers : (fallbackOwnMember ? [fallbackOwnMember] : []));
+        },
+        () => setMembers(fallbackOwnMember ? [fallbackOwnMember] : [])
+      );
+    } else {
+      setMembers([]);
+    }
     return () => { unsubEvents(); unsubMembers(); };
-  }, []);
+  }, [canManageBookings, fallbackOwnMember, ownerIds]);
 
   useEffect(() => {
-    if (!selectedEventId) { setBookings([]); return; }
-    const unsubBookings = onSnapshot(query(collection(db, "event_bookings"), where("eventId", "==", selectedEventId)), snap => {
-      const bks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (!selectedEventId || (!canManageBookings && ownerIds.length === 0)) { setBookings([]); return undefined; }
+    const scopedQuery = canManageBookings
+      ? query(collection(db, "event_bookings"), where("eventId", "==", selectedEventId))
+      : query(collection(db, "event_bookings"), where("memberId", "in", ownerIds));
+    const unsubBookings = onSnapshot(scopedQuery, snap => {
+      const bks = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(b => canManageBookings || b.eventId === selectedEventId);
       bks.sort((a, b) => {
         const order = { confirmed: 0, pending: 1, cancelled: 2 };
         const oa = order[a.status] ?? 3, ob = order[b.status] ?? 3;
@@ -214,7 +249,7 @@ export default function EventBookings() {
       setBookings(bks);
     });
     return () => unsubBookings();
-  }, [selectedEventId]);
+  }, [canManageBookings, ownerIds, selectedEventId]);
 
   const activeEvent = useMemo(() => events.find(e => e.id === selectedEventId) || null, [events, selectedEventId]);
   const memberIsBoard = useMemo(() => isBoardMember(selectedMember), [selectedMember]);
@@ -281,7 +316,9 @@ export default function EventBookings() {
 
   const capacity = Number(activeEvent?.capacity || 1);
   const requestedPax = 1 + companionsList.length;
-  const confirmedPax = bookings.filter(b => b.status === "confirmed").reduce((s, b) => s + Number(b.totalPax || 1), 0);
+  const confirmedPax = canManageBookings
+    ? bookings.filter(b => b.status === "confirmed").reduce((s, b) => s + Number(b.totalPax || 1), 0)
+    : Number(activeEvent?.bookedCount || 0);
   const isOverCapacity = (confirmedPax + requestedPax) > capacity;
 
   const today = getTodayISO();
@@ -319,6 +356,7 @@ export default function EventBookings() {
   };
 
   const saveManualBenefit = async () => {
+    if (!requireBookingManagementPermission(can, (message) => showToast(message, "error"))) return;
     if (!benefitModal) return;
     if (!isEligibleForBenefit(benefitModal, benefitModal.benefitDate || getTodayISO())) {
       showToast("هذا العضو غير مستحق للدعم أو الميزة في هذا التاريخ.", "error");
@@ -358,6 +396,8 @@ export default function EventBookings() {
   // ── تسجيل الحجز ──
   const handleConfirmBooking = async (isPending = false) => {
     if (!activeEvent || !selectedMember) return;
+    const targetMemberId = selectedMember.jobId || selectedMember.employeeCode || selectedMember.id || "";
+    if (!canManageBookings && !requireOwnBookingTarget(user, targetMemberId, (message) => showToast(message, "error"))) return;
     if (isOverCapacity) return showToast("العدد المطلوب يتجاوز المقاعد المتاحة!", "error");
     if (isBookingClosed) return showToast("الحجز مغلق حالياً وفقاً للمواعيد المحددة", "error");
 
@@ -476,6 +516,7 @@ export default function EventBookings() {
 
   // ── تنفيذ الإلغاء عبر المودال ──
   const executeCancelBooking = async () => {
+    if (!requireBookingManagementPermission(can, (message) => showToast(message, "error"))) return;
     if (!cancelModal || !activeEvent) return;
     const { booking, isTimeout } = cancelModal;
     try {
@@ -501,6 +542,7 @@ export default function EventBookings() {
   };
 
   const handleConfirmPending = async (booking) => {
+    if (!requireBookingManagementPermission(can, (message) => showToast(message, "error"))) return;
     if (!window.confirm(`تأكيد حجز "${booking.memberName}"؟`)) return;
     try {
       const batch = writeBatch(db);
@@ -558,7 +600,7 @@ export default function EventBookings() {
   };
 
   const copyPhones = () => {
-    if (isMemberView) return showToast("غير مصرح باستخراج أرقام الأعضاء.", "error");
+    if (!requireSensitiveBookingExportPermission(can, (message) => showToast(message, "error"))) return;
     const phones = bookings.filter(b => b.status === "confirmed" && b.memberPhone).map(b => b.memberPhone).join(", ");
     if (!phones) return showToast("لا توجد أرقام", "error");
     navigator.clipboard.writeText(phones); showToast("تم نسخ الأرقام بنجاح");
@@ -573,6 +615,7 @@ export default function EventBookings() {
   );
 
   const addSupervisor = async () => {
+    if (!requireBookingManagementPermission(can, (message) => showToast(message, "error"))) return;
     if (!activeEvent || !supMemberId) return showToast("اختر المشرف من مجلس الإدارة أولاً", "error");
     const member = boardMembersList.find((m) => String(m.jobId || m.id) === String(supMemberId));
     if (!member) return showToast("تعذر العثور على بيانات المشرف", "error");
@@ -636,6 +679,7 @@ export default function EventBookings() {
   };
 
   const removeSupervisor = async (memberId) => {
+    if (!requireBookingManagementPermission(can, (message) => showToast(message, "error"))) return;
     if (!activeEvent) return;
     if (!window.confirm("حذف المشرف من الرحلة؟ (المزايا المسجلة بملفه تبقى محفوظة)")) return;
     try {
@@ -650,19 +694,17 @@ export default function EventBookings() {
   };
 
   const filteredBookings = useMemo(() => {
-    const source = isMemberView ? bookings.filter(isOwnBooking) : bookings;
-    return source.filter(b => {
+    return bookings.filter(b => {
       if (statusFilter !== "all" && b.status !== statusFilter) return false;
       if (bookingSearch.trim().length > 1) return b.memberName?.toLowerCase().includes(bookingSearch.toLowerCase()) || b.memberId?.toString().includes(bookingSearch);
       return true;
     });
-  }, [bookings, statusFilter, bookingSearch, isMemberView, isOwnBooking]);
+  }, [bookings, statusFilter, bookingSearch]);
 
   const bookingKpis = useMemo(() => {
-    const source = isMemberView ? bookings.filter(isOwnBooking) : bookings;
-    const c = source.filter((b) => b.status === "confirmed");
-    const p = source.filter((b) => b.status === "pending");
-    const x = source.filter((b) => b.status === "cancelled");
+    const c = bookings.filter((b) => b.status === "confirmed");
+    const p = bookings.filter((b) => b.status === "pending");
+    const x = bookings.filter((b) => b.status === "cancelled");
     return {
       confirmed: c.length,
       pending: p.length,
@@ -670,18 +712,19 @@ export default function EventBookings() {
       revenue: c.reduce((s, b) => s + Number(b.totalCost || 0), 0),
       pax: c.reduce((s, b) => s + Number(b.totalPax || 1), 0),
     };
-  }, [bookings, isMemberView, isOwnBooking]);
+  }, [bookings]);
 
   useEffect(() => {
-    if (!isMemberView || selectedMember || members.length === 0) return;
-    const mine = members.find((m) =>
-      [m.jobId, m.employeeCode, m.id, m.phone, m.mobile].filter(Boolean).map(String).some((v) => ownKeys.includes(v))
-    );
+    if (canManageBookings || selectedMember || members.length === 0) return;
+    const mine = members.find((member) => isOwnBooking(
+      { memberId: member.jobId || member.employeeCode || member.id },
+      ownerIds
+    ));
     if (mine) {
       setSelectedMember(mine);
       setSearchQ(mine.name || "");
     }
-  }, [isMemberView, members, ownKeys, selectedMember]);
+  }, [canManageBookings, members, ownerIds, selectedMember]);
 
   if (loading) return <div className="p-20 text-center animate-pulse font-black text-slate-400">جاري التحميل...</div>;
 
@@ -694,7 +737,7 @@ export default function EventBookings() {
       )}
 
       {/* 🎯 نافذة الإلغاء والاعتذار */}
-      {cancelModal && (
+      {canManageBookings && cancelModal && (
         <div className="fixed inset-0 z-[999] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in">
           <div className={clsx("w-full max-w-sm p-6 rounded-3xl shadow-2xl border space-y-5 animate-in zoom-in-95", T.card)}>
             <div className="flex items-center gap-3 text-rose-600 border-b border-rose-100 pb-3">
@@ -794,7 +837,7 @@ export default function EventBookings() {
       {activeEvent && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 animate-in fade-in duration-500">
           {/* ── ماكينة الحجز ── */}
-          <div className={clsx("lg:col-span-4 p-5 rounded-3xl border shadow-sm space-y-5 h-fit", T.card)}>
+          {canCreateBookings && <div className={clsx("lg:col-span-4 p-5 rounded-3xl border shadow-sm space-y-5 h-fit", T.card)}>
             <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
               <h3 className="font-black text-sm flex items-center gap-2 text-indigo-600"><Plus size={16} /> تسجيل مشترك ومرافقين</h3>
               <div className="mt-3 bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-xl border border-slate-100 dark:border-slate-700">
@@ -806,14 +849,14 @@ export default function EventBookings() {
             <div className="space-y-4">
               <div className="space-y-1 relative z-[100]">
                 <label className="text-[10px] font-black text-slate-400 uppercase flex justify-between">1. ابحث عن العضو {isBookingClosed && <span className="text-rose-500 font-bold animate-pulse">التسجيل مغلق!</span>}</label>
-                {isMemberView && selectedMember ? (
+                {!canManageBookings && selectedMember ? (
                   <div className="w-full px-4 py-2.5 rounded-xl border border-teal-200 bg-teal-50 text-xs font-black text-teal-800">
                     الحجز باسم: {selectedMember.name} ({selectedMember.jobId || ""})
                   </div>
                 ) : (
                 <div className="relative group">
                   <Search size={14} className="absolute right-3 top-3 text-slate-400" />
-                  <input disabled={isBookingClosed} type="text" value={searchQ} onChange={e => { setSearchQ(e.target.value); setShowRes(true); if (!isMemberView) setSelectedMember(null); }} placeholder="الاسم أو الرقم الوظيفي..." className={clsx("w-full pr-9 pl-4 py-2.5 rounded-xl border text-xs font-bold outline-none focus:ring-2 focus:border-indigo-500", T.inp, isBookingClosed && "opacity-50 cursor-not-allowed")} />
+                  <input disabled={isBookingClosed || !canManageBookings} type="text" value={searchQ} onChange={e => { setSearchQ(e.target.value); setShowRes(true); if (canManageBookings) setSelectedMember(null); }} placeholder="الاسم أو الرقم الوظيفي..." className={clsx("w-full pr-9 pl-4 py-2.5 rounded-xl border text-xs font-bold outline-none focus:ring-2 focus:border-indigo-500", T.inp, (isBookingClosed || !canManageBookings) && "opacity-50 cursor-not-allowed")} />
                   {showRes && filteredMembers.length > 0 && (
                     <div className={clsx("absolute top-full mt-1 w-full border rounded-xl shadow-2xl overflow-hidden z-[200]", T.card)}>
                       {filteredMembers.map(emp => {
@@ -834,7 +877,7 @@ export default function EventBookings() {
                 )}
               </div>
 
-              {memberIsBoard && !activeEvent.isFree && (
+              {canManageBookings && memberIsBoard && !activeEvent.isFree && (
                 <div className="p-3 bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800 rounded-xl space-y-2 animate-in fade-in">
                   <div className="flex items-center gap-1.5 text-[11px] font-black text-sky-700 dark:text-sky-400"><Award size={14} /> إشراف مجلس الإدارة</div>
                   <select value={boardDiscount} onChange={e => setBoardDiscount(e.target.value)} className={clsx("w-full px-3 py-2 rounded-lg border text-xs font-bold outline-none text-sky-800", T.sel)}>
@@ -845,7 +888,7 @@ export default function EventBookings() {
                 </div>
               )}
 
-              {isTripEvent && !isMemberView && (
+              {isTripEvent && canManageBookings && (
                 <div className="p-3 bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800 rounded-xl space-y-2 animate-in fade-in">
                   <div className="flex items-center gap-1.5 text-[11px] font-black text-violet-700 dark:text-violet-300"><Award size={14} /> مشرفو الرحلة من مجلس الإدارة ({eventSupervisors.length})</div>
                   <select value={supMemberId} onChange={e => setSupMemberId(e.target.value)} className={clsx("w-full px-3 py-2 rounded-lg border text-xs font-bold outline-none", T.sel)}>
@@ -917,21 +960,21 @@ export default function EventBookings() {
                 <Ticket size={18} /> {activeEvent.isFree || totalCost === 0 ? "تأكيد الحجز المجاني" : "المتابعة للتحصيل"}
               </button>
             </div>
-          </div>
+          </div>}
 
           {/* ── 3. كشف المشتركين ── */}
           <div className={clsx("lg:col-span-8 p-5 rounded-3xl border shadow-sm flex flex-col min-h-[500px]", T.card)}>
             <div className="flex flex-wrap justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-4 mb-4 gap-3">
-              <h3 className="font-black text-sm flex items-center gap-2"><Users size={18} className="text-indigo-600" /> كشف المشتركين ({filteredBookings.filter(b => b.status !== "cancelled").length})</h3>
+              <h3 className="font-black text-sm flex items-center gap-2"><Users size={18} className="text-indigo-600" /> {canManageBookings ? "كشف المشتركين" : "حجوزاتي"} ({filteredBookings.filter(b => b.status !== "cancelled").length})</h3>
               <div className="flex items-center gap-2">
-                {!isMemberView && (
+                {canExportBookings && (
                 <button onClick={copyPhones} className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-[10px] transition-all flex items-center gap-1.5 border shadow-sm">
                   <Copy size={14} /> استخراج الأرقام
                 </button>
                 )}
-                <button onClick={() => printManifest(activeEvent, filteredBookings)} className="px-4 py-2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-xl font-bold text-[10px] transition-all flex items-center gap-1.5 border shadow-sm">
+                {canExportBookings && <button onClick={() => printManifest(activeEvent, filteredBookings, () => requireSensitiveBookingExportPermission(can, (message) => showToast(message, "error")))} className="px-4 py-2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-xl font-bold text-[10px] transition-all flex items-center gap-1.5 border shadow-sm">
                   <Printer size={14} /> طباعة الكشف
-                </button>
+                </button>}
               </div>
             </div>
 
@@ -986,7 +1029,7 @@ export default function EventBookings() {
                           </div>
                         </td>
                         <td className="p-3 text-left">
-                          {!isMemberView && b.status !== "cancelled" && (
+                          {canManageBookings && b.status !== "cancelled" && (
                             <div className="flex justify-end gap-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                               {isPending && (
                                 <>

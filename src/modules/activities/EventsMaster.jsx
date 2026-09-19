@@ -15,6 +15,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../../app/providers/FirebaseProvider";
 import { useAuth } from "../../app/providers/AuthProvider";
+import { PERMISSIONS } from "../../security/permissions";
 import { useT } from "../../app/providers/ThemeProvider";
 import ArabicDatePicker from "../../ui/inputs/ArabicDatePicker";
 import { Button, EmptyState, FilterBar, LoadingState, PageHeader, SearchInput, StatCard as EnterpriseStatCard, StatusBadge, getModuleIcon } from "../../ui/enterprise";
@@ -33,6 +34,11 @@ import {
   canManageActivities,
   requireEventManagementPermission,
 } from "./activityAuthorization";
+import {
+  canExportSensitiveBookings,
+  canManageBookings,
+  requireSensitiveBookingExportPermission,
+} from "./bookingAuthorization";
 
 const DEVICE_EVENT_TYPE = "عرض أجهزة وموبايل";
 const EVENT_TYPES = [DEVICE_EVENT_TYPE, "رحلة ترفيهية", "رحلة تثقيفية", "حفل إفطار", "مسابقة ثقافية", "مؤتمر/ندوة", "نشاط رياضي", "احتفالية", "أخرى"];
@@ -73,9 +79,10 @@ const calcDaysLeft = (dateStr) => {
 };
 
 // ── طباعة التقرير المالي الشامل ──
-const printFinancialReport = (events, bookingsMap) => {
+const printFinancialReport = (events, bookingsMap, authorize) => {
+  if (typeof authorize !== "function" || authorize() !== true) return false;
   const win = openPrintWindow("events-financial-report", "width=1200,height=900");
-  if (!win) return;
+  if (!win) return false;
   const today = new Date().toLocaleDateString("ar-EG", { dateStyle: "full" });
   const eventDates = events.map((event) => event?.date).filter(Boolean).sort((a, b) => a.localeCompare(b));
   const periodMeta = eventDates.length > 0
@@ -135,12 +142,14 @@ const printFinancialReport = (events, bookingsMap) => {
   <div style="display:flex; justify-content:space-between; font-weight:bold;"><span>تقرير آلي</span><span>توقيع المسؤول: ................................</span></div>
   <script>window.onload=()=>setTimeout(()=>window.print(),500);</script></body></html>`);
   win.document.close();
+  return true;
 };
 
 // ── طباعة كشف تفصيلي لفعالية ──
-const printEventDetail = (event, bookings) => {
+const printEventDetail = (event, bookings, authorize) => {
+  if (typeof authorize !== "function" || authorize() !== true) return false;
   const win = openPrintWindow("event-detail-report", "width=1000,height=800");
-  if (!win) return;
+  if (!win) return false;
   const confirmed = bookings.filter(b => b.status === "confirmed")
     .sort((a, b) => String(a.memberId || "").localeCompare(String(b.memberId || ""), "ar", { numeric: true }));
   const pending = bookings.filter(b => b.status === "pending");
@@ -152,6 +161,7 @@ const printEventDetail = (event, bookings) => {
 
   win.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>كشف الفعالية: ${event.title}</title><style>@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap');@page{size:A4 landscape;margin:10mm}*{font-family:'Cairo',sans-serif;box-sizing:border-box;margin:0;padding:0;}html,body{width:100%;height:auto;}body{padding:16px;font-size:12px;}.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:15px 0;}.m{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px;text-align:center;}.m .v{font-size:18px;font-weight:900;color:#4f46e5;}.m .l{font-size:9px;color:#64748b;font-weight:700;}table{width:100%;border-collapse:collapse;page-break-inside:auto;break-inside:auto;}th{background:#1e293b;color:#fff;padding:9px;text-align:center;}td{padding:8px;border:1px solid #e2e8f0;vertical-align:top;}@media print{body{padding:0}.meta,.m,.brand-header{break-inside:avoid;page-break-inside:avoid}thead{display:table-header-group}tfoot{display:table-footer-group}tr,td,th{break-inside:avoid;page-break-inside:avoid}}${getPrintBrandStyles()}</style></head><body>${getPrintBrandHeader({ reportTitle: `كشف فعالية: ${event.title}`, reportMeta: `${event.type} | التاريخ: ${event.date} | ${event.location || ""}` })}<div class="meta"><div class="m"><div class="v">${totalPax}</div><div class="l">إجمالي الأفراد</div></div><div class="m"><div class="v">${confirmed.length}</div><div class="l">حجوزات مؤكدة</div></div><div class="m"><div class="v">${pending.length}</div><div class="l">حجوزات معلقة</div></div><div class="m"><div class="v" style="color:#059669">${formatMoney(totalRev)}</div><div class="l">إجمالي الإيراد</div></div></div><table><thead><tr><th>#</th><th>المشترك والمرافقين</th><th>الأفراد</th><th>التكلفة</th><th>الدفع</th><th>توقيع حضور</th></tr></thead><tbody>${rows || `<tr><td colspan="6" style="text-align:center;padding:20px;color:#94a3b8">لا توجد حجوزات مؤكدة</td></tr>`}</tbody></table>${cancelled.length > 0 ? `<p style="margin-top:15px;font-size:10px;color:#ef4444;font-weight:700">⚠ الملغيون (${cancelled.length}): ${cancelled.map(b => b.memberName).join("، ")}</p>` : ""}<div style="margin-top:25px;display:flex;justify-content:space-between;font-size:11px;color:#64748b;"><span>مشرف الفعالية: ${Array.isArray(event.supervisors) ? event.supervisors.join("، ") : (event.supervisors || "—")}</span><span>توقيع المشرف: .........................</span></div><script>window.onload=()=>setTimeout(()=>window.print(),600);</script></body></html>`);
   win.document.close();
+  return true;
 };
 
 function StatCard({ label, value, icon, colorClass }) {
@@ -195,7 +205,14 @@ export default function EventsMaster() {
 
   const showToast = useCallback((msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 4000); }, []);
   const canManageEvents = canManageActivities(can);
+  const canManageBookingData = canManageBookings(can);
+  const canExportBookingData = canExportSensitiveBookings(can);
+  const canViewActivityFinance = can(PERMISSIONS.reportsView) === true;
   const requireEventManagement = useCallback(() => requireEventManagementPermission(
+    can,
+    (message) => showToast(message, "error")
+  ), [can, showToast]);
+  const requireSensitiveBookingExport = useCallback(() => requireSensitiveBookingExportPermission(
     can,
     (message) => showToast(message, "error")
   ), [can, showToast]);
@@ -205,17 +222,22 @@ export default function EventsMaster() {
       setEvents(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setLoading(false);
     });
-    const unsubEmps = onSnapshot(query(collection(db, "employees")), snap => setEmployees(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    const unsubEmps = canManageEvents
+      ? onSnapshot(query(collection(db, "employees")), snap => setEmployees(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+      : () => setEmployees([]);
     return () => { unsubEvents(); unsubEmps(); };
-  }, []);
+  }, [canManageEvents]);
 
   useEffect(() => {
-    if (events.length === 0) return;
+    if (!canManageBookingData || events.length === 0) {
+      setBookingsMap({});
+      return undefined;
+    }
     const unsubs = events.map(ev => onSnapshot(query(collection(db, "event_bookings"), where("eventId", "==", ev.id)), snap => {
       setBookingsMap(prev => ({ ...prev, [ev.id]: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
     }));
     return () => unsubs.forEach(u => u());
-  }, [events]);
+  }, [canManageBookingData, events]);
 
   const boardMembers = useMemo(() => employees.filter(e => BOARD_MEMBERSHIP_ROLES.includes(e.membershipStatus)), [employees]);
 
@@ -348,7 +370,7 @@ export default function EventsMaster() {
         icon={getModuleIcon("/activities/master")}
         actions={(
           <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" size="sm" iconStart={BarChart3} onClick={() => printFinancialReport(events, bookingsMap)}>التقرير المالي</Button>
+            {canExportBookingData && <Button variant="secondary" size="sm" iconStart={BarChart3} onClick={() => printFinancialReport(events, bookingsMap, requireSensitiveBookingExport)}>التقرير المالي</Button>}
             {canManageEvents && <Button size="sm" iconStart={Plus} onClick={openCreate}>فعالية جديدة</Button>}
           </div>
         )}
@@ -473,9 +495,9 @@ export default function EventsMaster() {
           <div><h1 className="text-xl font-black tracking-tight">لوحة تحكم الفعاليات والأنشطة</h1><p className={clsx("text-[10px] font-bold mt-0.5", T.muted)}>إدارة الوجهات • المواعيد • التقارير المالية</p></div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => printFinancialReport(events, bookingsMap)} className="px-4 py-2.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-xl font-black text-xs flex items-center gap-1.5 transition-all">
+          {canExportBookingData && <button onClick={() => printFinancialReport(events, bookingsMap, requireSensitiveBookingExport)} className="px-4 py-2.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-xl font-black text-xs flex items-center gap-1.5 transition-all">
             <BarChart3 size={15} /> التقرير المالي
-          </button>
+          </button>}
           {canManageEvents && (
             <button onClick={openCreate} className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-black text-xs shadow-md active:scale-95 transition-all flex items-center gap-2">
               <Plus size={15} /> فعالية جديدة
@@ -488,8 +510,8 @@ export default function EventsMaster() {
         <StatCard label="إجمالي الفعاليات" value={stats.total} icon={CalendarDays} colorClass="text-slate-700 dark:text-slate-300" />
         <StatCard label="فعاليات قادمة" value={stats.upcoming} icon={Clock} colorClass="text-indigo-600" />
         <StatCard label="مفتوح الحجز" value={stats.openCount} icon={Ticket} colorClass="text-sky-600" />
-        <StatCard label="إجمالي الأفراد" value={stats.totalPax} icon={Users} colorClass="text-violet-600" />
-        <StatCard label="إجمالي الإيرادات" value={formatMoney(stats.totalRevenue)} icon={DollarSign} colorClass="text-emerald-600" />
+        {canManageBookingData && <StatCard label="إجمالي الأفراد" value={stats.totalPax} icon={Users} colorClass="text-violet-600" />}
+        {canManageBookingData && canViewActivityFinance && <StatCard label="إجمالي الإيرادات" value={formatMoney(stats.totalRevenue)} icon={DollarSign} colorClass="text-emerald-600" />}
       </div>
 
       {/* ═══ عرض الفعاليات ═══ */}
@@ -592,7 +614,7 @@ export default function EventsMaster() {
                       <h3 className="font-black text-sm truncate" title={event.title}>{event.title}</h3>
                     </div>
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                      <button onClick={() => printEventDetail(event, bks)} className="p-1.5 bg-slate-100 text-slate-500 hover:bg-indigo-500 hover:text-white rounded-lg transition-colors"><Printer size={13} /></button>
+                      {canExportBookingData && <button onClick={() => printEventDetail(event, bks, requireSensitiveBookingExport)} className="p-1.5 bg-slate-100 text-slate-500 hover:bg-indigo-500 hover:text-white rounded-lg transition-colors"><Printer size={13} /></button>}
                       {canManageEvents && (
                         <>
                           <button onClick={() => openEdit(event)} className="p-1.5 bg-sky-100 text-sky-600 hover:bg-sky-500 hover:text-white rounded-lg transition-colors"><Edit size={13} /></button>
@@ -618,25 +640,25 @@ export default function EventsMaster() {
                     <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden"><div className={clsx("h-full rounded-full transition-all duration-700", booked >= capacity ? "bg-rose-500" : occupancyRate > 75 ? "bg-amber-500" : "bg-teal-500")} style={{ width: `${occupancyRate}%` }} /></div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 mb-2">
+                  {canManageBookingData && <div className="grid grid-cols-2 gap-2 mb-2">
                     <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-2 text-center border border-emerald-100 dark:border-emerald-900"><p className="text-base font-black text-emerald-600">{confirmedCount}</p><p className="text-[8px] font-bold text-emerald-500">مؤكد</p></div>
                     <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-2 text-center border border-amber-100 dark:border-amber-900"><p className="text-base font-black text-amber-600">{pendingCount}</p><p className="text-[8px] font-bold text-amber-500">معلق</p></div>
-                  </div>
+                  </div>}
 
-                  {!event.isFree ? (
+                  {canViewActivityFinance && (!event.isFree ? (
                     <div className="grid grid-cols-3 gap-2">
                       <div className={clsx("p-2 rounded-xl text-center border", "bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-700")}><p className="text-[8px] font-black text-slate-400 uppercase">قيمة الاشتراك على العضو</p><p className="text-xs font-black text-indigo-600">{formatMoney(event.memberPrice || 0)}</p></div>
                       <div className={clsx("p-2 rounded-xl text-center border", "bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-900")}><p className="text-[8px] font-black text-emerald-600 uppercase">قيمة الدعم الخاص بالعضو</p><p className="text-xs font-black text-emerald-700 dark:text-emerald-300">{formatMoney(event.memberSupportValue || 0)}</p></div>
                       <div className={clsx("p-2 rounded-xl text-center border", "bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-700")}><p className="text-[8px] font-black text-slate-400 uppercase">سعر المرافق</p><p className="text-xs font-black text-slate-700 dark:text-slate-300">{formatMoney(event.companionPrice || 0)}</p></div>
                     </div>
-                  ) : <div className="bg-emerald-50 dark:bg-emerald-900/20 p-2 rounded-xl text-center text-emerald-600 border border-emerald-100 dark:border-emerald-900"><p className="text-xs font-black">✓ فعالية مجانية</p></div>}
+                  ) : <div className="bg-emerald-50 dark:bg-emerald-900/20 p-2 rounded-xl text-center text-emerald-600 border border-emerald-100 dark:border-emerald-900"><p className="text-xs font-black">✓ فعالية مجانية</p></div>)}
 
-                  {event.supervisors?.length > 0 && (
+                  {canManageBookingData && event.supervisors?.length > 0 && (
                     <div className="mt-2 flex items-center gap-1 text-[8px] font-bold text-sky-600 bg-sky-50 dark:bg-sky-900/20 px-2.5 py-1.5 rounded-xl border border-sky-100 dark:border-sky-800">
                       <ShieldAlert size={10} /><span className="truncate">إشراف: {Array.isArray(event.supervisors) ? event.supervisors.join(" - ") : event.supervisors}</span>
                     </div>
                   )}
-                  {pendingCount > 0 && (
+                  {canManageBookingData && pendingCount > 0 && (
                     <div className="mt-2 flex items-center gap-1 text-[8px] font-bold text-amber-600 bg-amber-50 dark:bg-amber-900/20 px-2.5 py-1.5 rounded-xl border border-amber-100 dark:border-amber-800 animate-pulse">
                       <AlertTriangle size={10} /> {pendingCount} حجز في انتظار الدفع
                     </div>
