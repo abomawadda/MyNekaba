@@ -32,9 +32,11 @@ export function getAdminContext() {
     });
 
   return {
+    app,
     projectId,
     auth: getAuth(app),
     db: getFirestore(app),
+    storageBucketName: process.env.FIREBASE_STORAGE_BUCKET || "",
   };
 }
 

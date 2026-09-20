@@ -93,8 +93,11 @@ test("phase 22g.4.2 masking helpers minimize identifiers", () => {
 test("phase 22g.4.2 endpoint requires trusted active admin authorization", () => {
   const endpoint = read("api/admin/recovery/action.js");
   const authorization = read("api/_lib/adminAuthorization.js");
+  const trustedPrincipal = read("api/_lib/trustedPrincipal.js");
   assert.match(endpoint, /requireAdminActor/);
-  assert.match(authorization, /verifyIdToken/);
+  assert.match(authorization, /resolveTrustedPrincipal/);
+  assert.match(trustedPrincipal, /verifyIdToken\(bearerToken\(req\), true\)/);
+  assert.match(trustedPrincipal, /account\.firebaseUid\) !== firebaseUid/);
   assert.match(authorization, /actor\.accountStatus !== "active"/);
   assert.match(authorization, /actor\.role !== "admin"/);
 });
