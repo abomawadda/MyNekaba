@@ -8,6 +8,10 @@ function getProjectId() {
   return process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT || "";
 }
 
+export function getStorageBucketName(env = process.env) {
+  return env.FIREBASE_STORAGE_BUCKET || env.VITE_FIREBASE_STORAGE_BUCKET || "";
+}
+
 function getCredential() {
   const projectId = getProjectId();
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
@@ -36,7 +40,7 @@ export function getAdminContext() {
     projectId,
     auth: getAuth(app),
     db: getFirestore(app),
-    storageBucketName: process.env.FIREBASE_STORAGE_BUCKET || "",
+    storageBucketName: getStorageBucketName(),
   };
 }
 

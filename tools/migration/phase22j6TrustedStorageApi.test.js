@@ -25,6 +25,7 @@ import {
 } from "../../api/_lib/trustedStorageResource.js";
 import { buildStorageAuditEvent } from "../../api/_lib/storageAudit.js";
 import { createEmployeeAttachmentService } from "../../api/_lib/employeeAttachmentService.js";
+import { getStorageBucketName } from "../../api/_lib/firebaseAdmin.js";
 import { PERMISSIONS } from "../../src/security/permissions.js";
 
 const req = (token = "token") => ({ headers: { authorization: `Bearer ${token}` } });
@@ -520,6 +521,17 @@ test("phase 22j.6 endpoints expose no persistent download URL or arbitrary path 
   ].map((path) => readFileSync(path, "utf8")).join("\n");
   assert.doesNotMatch(sources, /getDownloadURL|createSignedUrl|downloadToken/);
   assert.doesNotMatch(sources, /body\.path|body\.storagePath/);
+});
+
+test("phase 22j.6 server Storage bucket prefers the server env and supports the existing public Firebase env", () => {
+  assert.equal(getStorageBucketName({
+    FIREBASE_STORAGE_BUCKET: "server-bucket",
+    VITE_FIREBASE_STORAGE_BUCKET: "public-bucket",
+  }), "server-bucket");
+  assert.equal(getStorageBucketName({
+    VITE_FIREBASE_STORAGE_BUCKET: "public-bucket",
+  }), "public-bucket");
+  assert.equal(getStorageBucketName({}), "");
 });
 
 test("phase 22j.6 shared admin authorization inherits exact UID binding", () => {
