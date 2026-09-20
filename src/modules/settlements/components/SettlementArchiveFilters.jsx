@@ -14,6 +14,7 @@ export default function SettlementArchiveFilters({
   attachmentCount = 0,
   onOpenMigration,
   canMigrate = false,
+  canAccessAttachments = false,
 }) {
   return (
     <FilterBar collapsedLabel="فلاتر الأرشيف" className="justify-end">
@@ -49,6 +50,7 @@ export default function SettlementArchiveFilters({
       </select>
       <StatusBadge tone="info">النتائج: {resultCount.toLocaleString("ar-EG")}</StatusBadge>
       {canMigrate && (
+        canAccessAttachments ? (
         <button
           type="button"
           onClick={onOpenMigration}
@@ -58,6 +60,7 @@ export default function SettlementArchiveFilters({
           <Download size={14} />
           ترحيل المرفقات ({attachmentCount.toLocaleString("ar-EG")})
         </button>
+        ) : null
       )}
     </FilterBar>
   );

@@ -1,7 +1,14 @@
 import React, { useState } from "react";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { storage } from "../../app/providers/FirebaseProvider";
-import { validateSecureAttachment } from "../../security/permissions";
+import { useAuth } from "../../app/providers/AuthProvider";
+import { PERMISSIONS, SECURE_ATTACHMENT_ACCEPT, validateSecureAttachment } from "../../security/permissions";
+import {
+  buildGeneralAttachmentPath,
+  hasStoragePermissions,
+  requireStoragePermissions,
+  sanitizeAttachmentFileName,
+} from "../../security/storageAuthorization";
 
 const CLOUDINARY_CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || "dssokojaq";
 const CLOUDINARY_UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || "nekaba_preset";
@@ -9,25 +16,28 @@ const CLOUDINARY_UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET |
 export default function FileUpload({
   existingFiles = [],
   onChange,
-  voucherNumber = "بدون_رقم",
-  partyName = "بدون_اسم"
+  businessPermission,
+  contextId = "general",
 }) {
+  const { can } = useAuth();
   const [currentNote, setCurrentNote] = useState("");
   const [isUploading, setIsUploading] = useState(false);
-  const [uploadSource, setUploadSource] = useState("cloudinary");
+  const [uploadSource, setUploadSource] = useState("firebase");
+  const uploadPermissions = [businessPermission, PERMISSIONS.attachmentsUpload, PERMISSIONS.attachmentsView].filter(Boolean);
+  const viewPermissions = [businessPermission, PERMISSIONS.attachmentsView].filter(Boolean);
+  const deletePermissions = [businessPermission, PERMISSIONS.attachmentsDelete].filter(Boolean);
+  const canUpload = Boolean(businessPermission) && hasStoragePermissions(can, uploadPermissions);
+  const canView = Boolean(businessPermission) && hasStoragePermissions(can, viewPermissions);
+  const canDelete = Boolean(businessPermission) && hasStoragePermissions(can, deletePermissions);
 
-  const generateFileName = () => {
-    const safePartyName = partyName.replace(/\s+/g, '_');
-    const safeVoucher = voucherNumber ? String(voucherNumber).trim() : "Draft";
-    return `${safeVoucher}_${safePartyName}_${Date.now()}`;
-  };
+  const generateAttachmentId = () => `att_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
   const uploadToCloudinary = async (file) => {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
     formData.append("folder", "treasury_docs");
-    formData.append("public_id", generateFileName());
+    formData.append("public_id", `${generateAttachmentId()}_${sanitizeAttachmentFileName(file.name)}`);
 
     const response = await fetch(
       `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`,
@@ -40,12 +50,21 @@ export default function FileUpload({
   };
 
   const uploadToFirebase = async (file) => {
-    const fileRef = ref(storage, `attachments/${generateFileName()}_${file.name}`);
+    const storagePath = buildGeneralAttachmentPath({
+      contextId,
+      attachmentId: generateAttachmentId(),
+      fileName: file.name,
+    });
+    const fileRef = ref(storage, storagePath);
     const snapshot = await uploadBytes(fileRef, file);
     return await getDownloadURL(snapshot.ref);
   };
 
   const handleFileChange = async (e) => {
+    if (!requireStoragePermissions(can, uploadPermissions, (message) => alert(message))) {
+      e.target.value = null;
+      return;
+    }
     const file = e.target.files[0];
     if (!file) return;
     const validationError = validateSecureAttachment(file);
@@ -70,7 +89,7 @@ export default function FileUpload({
         note: currentNote || "مستند مالي",
         uploadedAt: Date.now(),
         fileName: file.name,
-        source: uploadSource
+        source: uploadSource,
       };
 
       onChange([...existingFiles, newAttachment]);
@@ -87,7 +106,7 @@ export default function FileUpload({
 
   return (
     <div className="p-4 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 space-y-4">
-      <div className="flex items-center justify-between border-b pb-2">
+      {canUpload && <div className="flex items-center justify-between border-b pb-2">
         <label className="text-xs font-semibold text-slate-500">مصدر التخزين الآمن</label>
         <div className="flex bg-slate-200 p-1 rounded-lg">
           <button
@@ -105,9 +124,9 @@ export default function FileUpload({
             Firebase Storage
           </button>
         </div>
-      </div>
+      </div>}
 
-      <div className="space-y-3">
+      {canUpload && <div className="space-y-3">
         <div className="flex gap-2">
           <input
             type="text"
@@ -121,13 +140,13 @@ export default function FileUpload({
           <label className={`px-4 py-2 rounded-lg text-sm font-semibold shadow-sm transition-all cursor-pointer flex items-center justify-center min-w-[100px] ${isUploading ? "bg-slate-400 text-white animate-pulse" : "bg-brand-600 text-white hover:bg-brand-700 active:scale-95"
             }`}>
             {isUploading ? "جاري الرفع..." : "+ إرفاق مستند"}
-            <input type="file" className="hidden" onChange={handleFileChange} disabled={isUploading} />
+            <input type="file" accept={SECURE_ATTACHMENT_ACCEPT.join(",")} className="hidden" onChange={handleFileChange} disabled={isUploading} />
           </label>
         </div>
-        <p className="text-[10px] text-slate-400">سيتم تسمية الملف تلقائياً بـ: {voucherNumber}_{partyName.replace(/\s+/g, '_')}_[التاريخ]</p>
-      </div>
+        <p className="text-[10px] text-slate-400">يُنشئ النظام اسماً عشوائياً آمناً دون تضمين بيانات شخصية.</p>
+      </div>}
 
-      <div className="space-y-2">
+      {canView && <div className="space-y-2">
         {existingFiles.length > 0 ? (
           <div className="grid grid-cols-1 gap-2">
             {existingFiles.map((file, index) => (
@@ -141,7 +160,10 @@ export default function FileUpload({
                 </div>
                 <div className="flex gap-2">
                   <a href={file.url} target="_blank" rel="noreferrer" className="px-3 py-1 text-[10px] font-semibold text-brand-700 bg-brand-50 rounded-lg hover:bg-brand-100">عرض</a>
-                  <button type="button" onClick={() => onChange(existingFiles.filter((_, i) => i !== index))} className="p-1 text-rose-400 hover:text-rose-600">🗑️</button>
+                  {canDelete && <button type="button" onClick={() => {
+                    if (!requireStoragePermissions(can, deletePermissions, (message) => alert(message))) return;
+                    onChange(existingFiles.filter((_, i) => i !== index));
+                  }} className="p-1 text-rose-400 hover:text-rose-600">🗑️</button>}
                 </div>
               </div>
             ))}
@@ -149,7 +171,7 @@ export default function FileUpload({
         ) : (
           <p className="text-[11px] text-slate-400 text-center py-3">لا توجد مستندات مرفقة حالياً.</p>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

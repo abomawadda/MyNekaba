@@ -188,6 +188,29 @@ export const SECURE_ATTACHMENT_ACCEPT = [
   "application/vnd.ms-excel",
 ];
 
+export const SECURE_ATTACHMENT_EXTENSIONS = [
+  ".pdf",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx",
+];
+
+const SECURE_ATTACHMENT_MIME_EXTENSIONS = {
+  "application/pdf": [".pdf"],
+  "image/png": [".png"],
+  "image/jpeg": [".jpg", ".jpeg"],
+  "image/webp": [".webp"],
+  "application/msword": [".doc"],
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
+  "application/vnd.ms-excel": [".xls"],
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+};
+
 export const MAX_ATTACHMENT_SIZE_BYTES = 5 * 1024 * 1024;
 
 export function normalizeRole(role = "") {
@@ -273,11 +296,22 @@ export function filterDataByScope(records = [], resource, user) {
 
 export function validateSecureAttachment(file) {
   if (!file) return "الملف غير صالح.";
+  if (!file.size || file.size <= 0) {
+    return "الملف فارغ أو غير صالح.";
+  }
   if (file.size > MAX_ATTACHMENT_SIZE_BYTES) {
     return "الحد الأقصى للمرفق الواحد هو 5 ميجابايت.";
   }
-  if (file.type && !SECURE_ATTACHMENT_ACCEPT.includes(file.type)) {
+  const fileName = String(file.name || "").trim().toLowerCase();
+  const extension = SECURE_ATTACHMENT_EXTENSIONS.find((item) => fileName.endsWith(item)) || "";
+  if (!extension) {
+    return "امتداد الملف غير مسموح به داخل النظام.";
+  }
+  if (!file.type || !SECURE_ATTACHMENT_ACCEPT.includes(file.type)) {
     return "نوع الملف غير مسموح به داخل النظام.";
+  }
+  if (!SECURE_ATTACHMENT_MIME_EXTENSIONS[file.type]?.includes(extension)) {
+    return "نوع الملف لا يطابق امتداده.";
   }
   return "";
 }

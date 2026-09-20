@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { collection, query, onSnapshot, doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { collection, query, onSnapshot, doc, setDoc, serverTimestamp, where, documentId } from "firebase/firestore";
 import { db } from "../../app/providers/FirebaseProvider";
 import { useT } from "../../app/providers/ThemeProvider";
 import { useAuth } from "../../app/providers/AuthProvider";
@@ -20,7 +20,8 @@ import {
   StatusBadge,
   getModuleIcon,
 } from "../../ui/enterprise";
-import { filterDataByScope, PERMISSIONS } from "../../security/permissions";
+import { filterDataByScope, getDataScope, PERMISSIONS } from "../../security/permissions";
+import { getStableAttachmentOwnerIds } from "../../security/storageAuthorization";
 
 import {
   UserPlus, Search, Eye, Edit3, Trash2,
@@ -64,15 +65,64 @@ export default function EmployeeDashboard({ forcedEmployeeId = "" } = {}) {
   }, []);
 
   useEffect(() => {
-    const unsubEmp = onSnapshot(query(collection(db, "employees")), (snap) => {
-      const nextEmployees = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setEmployees(filterDataByScope(nextEmployees, "employees", user));
+    const scope = getDataScope(user, "employees");
+    if (scope === "none") {
+      setEmployees([]);
       setLoading(false);
+      return undefined;
+    }
+
+    if (scope === "all") {
+      const unsubEmp = onSnapshot(query(collection(db, "employees")), (snap) => {
+        const nextEmployees = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setEmployees(filterDataByScope(nextEmployees, "employees", user));
+        setLoading(false);
+      }, (err) => {
+        console.error(err);
+        setLoading(false);
+      });
+      return () => unsubEmp();
+    }
+
+    const ownerIds = getStableAttachmentOwnerIds(user).slice(0, 10);
+    if (ownerIds.length === 0) {
+      setEmployees([]);
+      setLoading(false);
+      return undefined;
+    }
+
+    const scopedQueries = [
+      query(collection(db, "employees"), where(documentId(), "in", ownerIds)),
+      query(collection(db, "employees"), where("jobId", "in", ownerIds)),
+      query(collection(db, "employees"), where("employeeCode", "in", ownerIds)),
+    ];
+    const snapshotsByQuery = new Map();
+    let pending = scopedQueries.length;
+    let active = true;
+
+    const publish = () => {
+      if (!active) return;
+      const merged = new Map();
+      snapshotsByQuery.forEach((records) => records.forEach((record) => merged.set(record.id, record)));
+      setEmployees(filterDataByScope(Array.from(merged.values()), "employees", user));
+      if (pending === 0) setLoading(false);
+    };
+
+    const subscriptions = scopedQueries.map((scopedQuery, index) => onSnapshot(scopedQuery, (snap) => {
+      snapshotsByQuery.set(index, snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      pending = Math.max(0, pending - 1);
+      publish();
     }, (err) => {
       console.error(err);
-      setLoading(false);
-    });
-    return () => unsubEmp();
+      snapshotsByQuery.set(index, []);
+      pending = Math.max(0, pending - 1);
+      publish();
+    }));
+
+    return () => {
+      active = false;
+      subscriptions.forEach((unsubscribe) => unsubscribe());
+    };
   }, [user]);
 
   useEffect(() => {

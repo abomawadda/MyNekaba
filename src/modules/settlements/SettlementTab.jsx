@@ -921,6 +921,9 @@ export default function SettlementTab() {
   const [activeTab, setActiveTab] = useState("current");
   const canSettle = can(PERMISSIONS.treasurySettle);
   const canMigrate = can(PERMISSIONS.treasuryMigrate);
+  const canUploadAttachments = can(PERMISSIONS.attachmentsUpload);
+  const canViewAttachments = can(PERMISSIONS.attachmentsView);
+  const canMigrateAttachments = canMigrate && canUploadAttachments && canViewAttachments;
   const canExportReports = can(PERMISSIONS.reportsExport);
   const canUseDiagnostic = canAccessSettlementDiagnostic(can);
   const diagnosticAuthorizedActiveTab = activeTab === "diagnostic" && !canUseDiagnostic ? "current" : activeTab;
@@ -976,6 +979,7 @@ export default function SettlementTab() {
 
   const runAttachmentMigration = async () => {
     if (!canMigrate) return;
+    if (!canUploadAttachments || !canViewAttachments) return;
     if (dataUrlHits.length === 0) return;
     if (!window.confirm(`سيتم رفع ${dataUrlHits.length} مرفقاً للسحابة أولاً، ولا تُمس المستندات إلا بعد نجاح الرفع كاملاً. متابعة؟`)) return;
     setMigrating(true);
@@ -989,9 +993,17 @@ export default function SettlementTab() {
           ? sourceDoc?.settlementExpenses?.find((e) => e.id === hit.expenseId)?.files?.[hit.fileIndex]?.url
           : sourceDoc?.attachments?.[hit.fileIndex]?.url;
         if (!isDataUrl(currentUrl)) continue;
-        const fileName = `${hit.label || "attachment"}`;
-        const url = await uploadDataUrlToStorage(currentUrl, fileName);
-        uploaded.push({ hit, url, legacyUrl: currentUrl });
+        const fileName = `${hit.name || "attachment"}`;
+        const result = await uploadDataUrlToStorage(currentUrl, fileName, {
+          can,
+          requiredPermissions: [
+            PERMISSIONS.treasuryMigrate,
+            PERMISSIONS.attachmentsUpload,
+            PERMISSIONS.attachmentsView,
+          ],
+          contextId: `${hit.collection}_${hit.docId}`,
+        });
+        uploaded.push({ hit, url: result.url, legacyUrl: currentUrl });
       }
       if (uploaded.length === 0) {
         setMigrationReport({ ok: false, msg: "لا توجد مرفقات صالحة للترحيل (ربما رُحّلت مسبقاً)." });
@@ -3241,7 +3253,12 @@ export default function SettlementTab() {
                 <input type="text" value={expNotes} onChange={e => setExpNotes(e.target.value)} placeholder="مثال: فاتورة صيانة..." className={clsx("w-full px-3 py-2.5 rounded-xl border text-xs font-bold outline-none focus:ring-2 focus:border-amber-500 h-[38px]", T.inp)} />
               </div>
 
-              <FileUpload txId={`tmp_${selAdvId}`} existingFiles={expFiles} onChange={setExpFiles} />
+              <FileUpload
+                contextId={`settlement_${selAdvId}`}
+                existingFiles={expFiles}
+                onChange={setExpFiles}
+                businessPermission={PERMISSIONS.treasurySettle}
+              />
 
               {editingExpense && (
                 <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40">
@@ -3364,6 +3381,7 @@ export default function SettlementTab() {
               attachmentCount={dataUrlHits.length}
               onOpenMigration={() => { setMigrationReport(null); setShowMigration(true); }}
               canMigrate={canMigrate}
+              canAccessAttachments={canUploadAttachments && canViewAttachments}
             />
           </div>
 
@@ -3443,6 +3461,7 @@ export default function SettlementTab() {
       )}
 
       {canMigrate && showMigration && (
+        canMigrateAttachments ? (
         <div className="fixed inset-0 z-[999] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in">
           <div className={clsx("w-full max-w-lg max-h-[92vh] overflow-y-auto p-6 rounded-3xl shadow-2xl border space-y-4 animate-in zoom-in-95", T.card)}>
             <div className="flex items-center gap-3 text-sky-600 border-b border-sky-100 pb-3">
@@ -3475,6 +3494,7 @@ export default function SettlementTab() {
             </div>
           </div>
         </div>
+        ) : null
       )}
     </div>
   );

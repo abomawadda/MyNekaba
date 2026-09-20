@@ -7,6 +7,9 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { useT } from "../../app/providers/ThemeProvider";
+import { useAuth } from "../../app/providers/AuthProvider";
+import { PERMISSIONS } from "../../security/permissions";
+import { hasStoragePermissions } from "../../security/storageAuthorization";
 import { formatEmployeeDate, getDeathDate, getEmployeeBirthDate, getLegalRetirementAge, getRetirementDate, isDeceasedMember, isRetiredMember } from "../../utils/memberBenefits";
 
 // 🎨 خريطة الألوان الاحترافية
@@ -49,7 +52,12 @@ const InfoCard = ({ icon: Icon, label, val, color = "teal", T }) => {
 
 export default function EmployeeProfile({ data }) {
   const T = useT() || {};
+  const { can } = useAuth();
   const [activeTab, setActiveTab] = useState("main");
+  const canViewAttachments = hasStoragePermissions(can, [
+    PERMISSIONS.employeesView,
+    PERMISSIONS.attachmentsView,
+  ]);
 
   if (!data) return (
     <div className="p-16 text-center flex flex-col items-center justify-center space-y-3">
@@ -78,7 +86,9 @@ export default function EmployeeProfile({ data }) {
     { id: "union", label: "البيانات النقابية", icon: Star },
     { id: "financial", label: "المالية والتأمينات", icon: Landmark },
     { id: "health", label: "الصحة والطوارئ", icon: Heart },
-    { id: "attachments", label: `المرفقات (${data.attachments?.length || 0})`, icon: FileText }
+    ...(canViewAttachments
+      ? [{ id: "attachments", label: `المرفقات (${data.attachments?.length || 0})`, icon: FileText }]
+      : [])
   ];
 
   return (
@@ -284,7 +294,7 @@ export default function EmployeeProfile({ data }) {
           </div>
         )}
 
-        {activeTab === "attachments" && (
+        {canViewAttachments && activeTab === "attachments" && (
           <div className="animate-in fade-in duration-300">
             {data.attachments && data.attachments.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">

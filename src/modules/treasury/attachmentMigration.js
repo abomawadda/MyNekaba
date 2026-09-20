@@ -1,5 +1,10 @@
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { storage } from "../../app/providers/FirebaseProvider";
+import {
+  buildSettlementAttachmentPath,
+  requireStoragePermissions,
+  validateStorageUpload,
+} from "../../security/storageAuthorization.js";
 
 export const isDataUrl = (value = "") => String(value || "").startsWith("data:");
 
@@ -21,18 +26,33 @@ export function dataUrlToBlob(dataUrl = "") {
   return new Blob([decodeURIComponent(parsed.body)], { type: parsed.mime });
 }
 
-const safeFileName = (name = "file") =>
-  String(name || "file").replace(/[^\w.\u0600-\u06FF-]+/g, "_").slice(0, 80) || "file";
+export async function uploadBlobToStorage(blob, fileName = "file", options = {}) {
+  const {
+    can,
+    requiredPermissions = [],
+    contextId = "draft",
+    onDenied,
+  } = options;
+  if (!requireStoragePermissions(can, requiredPermissions, onDenied)) {
+    throw new Error("لا تملك صلاحية رفع هذا المرفق.");
+  }
+  const validationError = validateStorageUpload({
+    name: fileName,
+    size: blob?.size,
+    type: blob?.type,
+  });
+  if (validationError) throw new Error(validationError);
 
-export async function uploadBlobToStorage(blob, fileName = "file") {
-  const key = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}_${safeFileName(fileName)}`;
-  const fileRef = ref(storage, `settlement_attachments/${key}`);
+  const attachmentId = `att_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  const storagePath = buildSettlementAttachmentPath({ contextId, attachmentId, fileName });
+  const fileRef = ref(storage, storagePath);
   await uploadBytes(fileRef, blob, { contentType: blob.type || "application/octet-stream" });
-  return getDownloadURL(fileRef);
+  const url = await getDownloadURL(fileRef);
+  return { url, storagePath };
 }
 
-export async function uploadDataUrlToStorage(dataUrl, fileName = "file") {
-  return uploadBlobToStorage(dataUrlToBlob(dataUrl), fileName);
+export async function uploadDataUrlToStorage(dataUrl, fileName = "file", options = {}) {
+  return uploadBlobToStorage(dataUrlToBlob(dataUrl), fileName, options);
 }
 
 export function collectDataUrlAttachments({ issuedChecks = [], transactions = [] }) {

@@ -53,6 +53,7 @@ import DynamicSelect from "../../ui/inputs/DynamicSelect";
 
 import { db } from "../../app/providers/FirebaseProvider";
 import { useT } from "../../app/providers/ThemeProvider";
+import { PERMISSIONS } from "../../security/permissions";
 
 import {
   DIRECT_BANK_CHARGE_OPTIONS,
@@ -1857,8 +1858,10 @@ export default function TreasuryForm({
 
             {FileUpload ? (
               <FileUpload
-                value={tx.attachments || []}
+                existingFiles={tx.attachments || []}
                 onChange={(files) => update("attachments", files || [])}
+                contextId={initialData?.id || "new_treasury"}
+                businessPermission={isEdit ? PERMISSIONS.treasuryEdit : PERMISSIONS.treasuryCreate}
               />
             ) : (
               <div className="rounded-xl border border-dashed p-4 text-xs font-bold text-slate-500">

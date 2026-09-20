@@ -27,6 +27,14 @@ import {
   deleteObject,
 } from "firebase/storage";
 import { useFirebase } from "../../../app/providers/FirebaseProvider";
+import { useAuth } from "../../../app/providers/AuthProvider";
+import { PERMISSIONS } from "../../../security/permissions";
+import {
+  buildTreasuryAttachmentPath,
+  requireManagedAttachmentPath,
+  requireStoragePermissions,
+  validateStorageUpload,
+} from "../../../security/storageAuthorization";
 import {
   buildLegacyIssuedCheckId,
   getPendingLegacyCheckTransactions,
@@ -132,10 +140,9 @@ function normalizeIssuedCheckPayload(tx = {}, options = {}) {
 
 export function useTreasuryService() {
   const { app } = useFirebase();
+  const { can } = useAuth();
   const db = getFirestore(app);
   const storage = getStorage(app);
-
-  const STORAGE_ROOT = "treasury/attachments";
 
   const getTargetCollection = (tx = {}) => {
     const sourceCollection = normalizeCollectionName(tx?.sourceCollection);
@@ -298,6 +305,9 @@ export function useTreasuryService() {
   };
 
   async function deleteTransaction(tx) {
+    if (!requireStoragePermissions(can, [PERMISSIONS.treasuryDelete, PERMISSIONS.attachmentsDelete])) {
+      throw new Error("لا تملك صلاحية حذف المستند ومرفقاته.");
+    }
     const groupedIds = Array.isArray(tx?.settlementGroupMemberIds)
       ? tx.settlementGroupMemberIds.filter(Boolean)
       : [];
@@ -339,13 +349,29 @@ export function useTreasuryService() {
     file,
     txId,
     description = "",
-    onProgress = null
+    onProgress = null,
+    options = {}
   ) {
+    const businessPermission = options.businessPermission || PERMISSIONS.treasuryCreate;
+    const requiredPermissions = [
+      businessPermission,
+      PERMISSIONS.attachmentsUpload,
+      PERMISSIONS.attachmentsView,
+    ];
+    if (!requireStoragePermissions(can, requiredPermissions)) {
+      throw new Error("لا تملك صلاحية رفع هذا المرفق.");
+    }
     if (!txId) throw new Error("txId مطلوب لرفع المرفق");
+    const validationError = validateStorageUpload(file);
+    if (validationError) throw new Error(validationError);
 
     const timestamp = Date.now();
-    const safeName = file.name.replace(/[^\w.\u0600-\u06FF-]/g, "_");
-    const storagePath = `${STORAGE_ROOT}/${txId}/${timestamp}_${safeName}`;
+    const attachmentId = `att_${timestamp}_${Math.random().toString(36).slice(2, 8)}`;
+    const storagePath = buildTreasuryAttachmentPath({
+      transactionId: txId,
+      attachmentId,
+      fileName: file.name,
+    });
 
     const storageRef = ref(storage, storagePath);
     const uploadTask = uploadBytesResumable(storageRef, file);
@@ -377,10 +403,14 @@ export function useTreasuryService() {
     });
   }
 
-  async function deleteAttachment(storagePath) {
+  async function deleteAttachment(storagePath, businessPermission = PERMISSIONS.treasuryDelete) {
     if (!storagePath) return;
+    if (!requireStoragePermissions(can, [businessPermission, PERMISSIONS.attachmentsDelete])) {
+      throw new Error("لا تملك صلاحية حذف هذا المرفق.");
+    }
+    const managedPath = requireManagedAttachmentPath(storagePath);
     try {
-      await deleteObject(ref(storage, storagePath));
+      await deleteObject(ref(storage, managedPath));
     } catch (err) {
       if (err.code !== "storage/object-not-found") {
         console.warn("فشل حذف المرفق من Storage:", err);

@@ -9,6 +9,9 @@ import {
 import clsx from "clsx";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { useT } from "../../app/providers/ThemeProvider";
+import { useAuth } from "../../app/providers/AuthProvider";
+import { PERMISSIONS } from "../../security/permissions";
+import { hasStoragePermissions } from "../../security/storageAuthorization";
 import { db } from "../../app/providers/FirebaseProvider";
 import {
   formatEmployeeDate,
@@ -93,6 +96,11 @@ const dedupeDocs = (docs = []) => {
 
 export default function EmployeeProfileFund({ data }) {
   const T = useT() || {};
+  const { can } = useAuth();
+  const canViewAttachments = hasStoragePermissions(can, [
+    PERMISSIONS.employeesView,
+    PERMISSIONS.attachmentsView,
+  ]);
   const [activeTab, setActiveTab] = useState("main");
   const [fundEntries, setFundEntries] = useState([]);
   const [fundLoading, setFundLoading] = useState(false);
@@ -227,7 +235,9 @@ export default function EmployeeProfileFund({ data }) {
     { id: "financial", label: "المالية والتأمينات", icon: Landmark },
     { id: "fund", label: "دعم الصندوق", icon: Gift },
     { id: "health", label: "الصحة والطوارئ", icon: Heart },
-    { id: "attachments", label: `المرفقات (${data.attachments?.length || 0})`, icon: FileText },
+    ...(canViewAttachments
+      ? [{ id: "attachments", label: `المرفقات (${data.attachments?.length || 0})`, icon: FileText }]
+      : []),
   ];
   tabs.splice(3, 0, { id: "movements", label: "حركة العضو", icon: GitBranch });
 
@@ -550,7 +560,7 @@ export default function EmployeeProfileFund({ data }) {
           </div>
         )}
 
-        {activeTab === "attachments" && (
+        {canViewAttachments && activeTab === "attachments" && (
           <div className="animate-in fade-in duration-300">
             {data.attachments && data.attachments.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">

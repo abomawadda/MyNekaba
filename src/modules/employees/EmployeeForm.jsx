@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { useFirebase } from "../../app/providers/FirebaseProvider";
+import { useAuth } from "../../app/providers/AuthProvider";
 import { useT } from "../../app/providers/ThemeProvider";
 import DynamicSelect from "../../ui/inputs/DynamicSelect";
 import {
@@ -16,7 +17,13 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { formatEmployeeDate, getBirthDateFromNationalId, getLegalRetirementDate } from "../../utils/memberBenefits";
-import { validateSecureAttachment, SECURE_ATTACHMENT_ACCEPT } from "../../security/permissions";
+import { validateSecureAttachment, SECURE_ATTACHMENT_ACCEPT, PERMISSIONS } from "../../security/permissions";
+import {
+  buildEmployeeAttachmentPath,
+  hasStoragePermissions,
+  requireManagedAttachmentPath,
+  requireStoragePermissions,
+} from "../../security/storageAuthorization";
 
 const MONTHS_AR = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
 const DAYS_AR = ["سبت", "أحد", "اثنين", "ثلاثاء", "أربعاء", "خميس", "جمعة"];
@@ -429,9 +436,9 @@ const ProfileCard = ({ emp, T }) => {
   );
 };
 
-const TabBar = ({ activeTab, setActiveTab, completeness, T }) => (
+const TabBar = ({ activeTab, setActiveTab, completeness, T, tabs = TABS }) => (
   <div className={clsx("flex gap-1.5 p-1.5 rounded-xl border shadow-sm overflow-x-auto", T.card)} style={{ scrollbarWidth: "none" }}>
-    {TABS.map(tab => {
+    {tabs.map(tab => {
       const Icon = tab.icon;
       const isActive = activeTab === tab.id;
       const pct = completeness[tab.id] || 0;
@@ -468,11 +475,28 @@ export default function EmployeeForm({
 }) {
   const T = useT();
   const { app } = useFirebase();
+  const { can } = useAuth();
   const storage = useMemo(() => getStorage(app), [app]);
 
   const actualData = initialData || data || employee || null;
   const actualMode = modalMode || mode || "add";
   const handleSaveSubmit = onSave || onSubmit;
+  const attachmentBusinessPermission = actualData || actualMode === "edit"
+    ? PERMISSIONS.employeesEdit
+    : PERMISSIONS.employeesCreate;
+  const canViewAttachments = hasStoragePermissions(can, [
+    PERMISSIONS.employeesView,
+    PERMISSIONS.attachmentsView,
+  ]);
+  const canUploadAttachments = hasStoragePermissions(can, [
+    attachmentBusinessPermission,
+    PERMISSIONS.attachmentsUpload,
+  ]);
+  const canDeleteAttachments = hasStoragePermissions(can, [
+    PERMISSIONS.employeesEdit,
+    PERMISSIONS.attachmentsDelete,
+  ]);
+  const visibleTabs = TABS.filter((tab) => tab.id !== "attachments" || canViewAttachments || canUploadAttachments);
 
   const getEmptyEmp = () => ({
     name: "", nationalId: "", jobId: "", phone: "", phone2: "", email: "",
@@ -865,14 +889,19 @@ export default function EmployeeForm({
       );
 
       case "attachments": return (
+        !canViewAttachments && !canUploadAttachments ? null :
         <div className={clsx("p-5 rounded-2xl border space-y-4 animate-in slide-in-from-right-4 duration-300", T.card)}>
           <div className="flex justify-between items-center border-b pb-3 border-slate-100 dark:border-slate-800">
             <div className="flex items-center gap-2 font-black text-xs uppercase tracking-widest text-teal-600">
-              <FileText size={14} /> الأرشيف والمرفقات ({emp.attachments?.length || 0})
+              <FileText size={14} /> الأرشيف والمرفقات {canViewAttachments ? `(${emp.attachments?.length || 0})` : ""}
             </div>
-            <label className="cursor-pointer bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700 shadow-md transition-all active:scale-95 text-[11px] font-black flex items-center gap-1.5">
+            {canUploadAttachments && <label className="cursor-pointer bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700 shadow-md transition-all active:scale-95 text-[11px] font-black flex items-center gap-1.5">
               <Upload size={13} /> رفع ملف
               <input type="file" hidden multiple accept={SECURE_ATTACHMENT_ACCEPT.join(",")} onChange={async (e) => {
+                if (!requireStoragePermissions(can, [attachmentBusinessPermission, PERMISSIONS.attachmentsUpload], (message) => showToast(message, "error"))) {
+                  e.target.value = "";
+                  return;
+                }
                 const files = Array.from(e.target.files || []);
                 const uploaded = [];
                 for (const file of files) {
@@ -883,7 +912,11 @@ export default function EmployeeForm({
                   }
                   try {
                     const attachmentId = `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-                    const storagePath = `employees/${emp.id || emp.membershipId || "new"}/attachments/${attachmentId}_${file.name.replace(/[^\w.\u0600-\u06FF-]/g, "_")}`;
+                    const storagePath = buildEmployeeAttachmentPath({
+                      employeeId: emp.id || emp.membershipId || "new",
+                      attachmentId,
+                      fileName: file.name,
+                    });
                     const storageRef = ref(storage, storagePath);
                     await uploadBytes(storageRef, file, { contentType: file.type });
                     const url = await getDownloadURL(storageRef);
@@ -906,20 +939,26 @@ export default function EmployeeForm({
                 }
                 e.target.value = "";
               }} />
-            </label>
+            </label>}
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+          {canViewAttachments && <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
             {emp.attachments?.map(f => (
               <a key={f.id} href={f.url || "#"} target={f.url ? "_blank" : undefined} rel="noreferrer" onClick={(event) => { if (!f.url) event.preventDefault(); }} className={clsx("flex flex-col items-center gap-2 p-3 rounded-xl border group hover:border-teal-500 hover:shadow-md transition-all cursor-pointer relative", T.sxn)}>
-                <button type="button" onClick={async () => {
+                {canDeleteAttachments && <button type="button" onClick={async (event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  if (!requireStoragePermissions(can, [PERMISSIONS.employeesEdit, PERMISSIONS.attachmentsDelete], (message) => showToast(message, "error"))) return;
                   if (f.storagePath) {
-                    try { await deleteObject(ref(storage, f.storagePath)); } catch (error) { showToast(`تعذر حذف الملف من التخزين: ${error.message || "خطأ غير معروف"}`, "error"); return; }
+                    try {
+                      const managedPath = requireManagedAttachmentPath(f.storagePath);
+                      await deleteObject(ref(storage, managedPath));
+                    } catch (error) { showToast(`تعذر حذف الملف من التخزين: ${error.message || "خطأ غير معروف"}`, "error"); return; }
                   }
                   upd({ attachments: emp.attachments.filter(x => x.id !== f.id) });
                 }}
                   className="absolute top-1.5 right-1.5 p-1 bg-white dark:bg-slate-800 text-rose-500 hover:bg-rose-500 hover:text-white rounded-lg opacity-0 group-hover:opacity-100 shadow-sm transition-all z-10">
                   <Trash2 size={11} />
-                </button>
+                </button>}
                 <div className={clsx("w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0",
                   f.name.endsWith(".pdf") ? "bg-rose-100 text-rose-600" :
                     f.type?.startsWith("image/") ? "bg-sky-100 text-sky-600" : "bg-teal-100 text-teal-600")}>
@@ -938,7 +977,7 @@ export default function EmployeeForm({
                 <p className="text-[10px] font-bold opacity-70">يُفضل رفع: صورة البطاقة، شهادة الميلاد، المؤهل</p>
               </div>
             )}
-          </div>
+          </div>}
         </div>
       );
 
@@ -987,7 +1026,7 @@ export default function EmployeeForm({
       </div>
 
       <ProfileCard emp={emp} T={T} />
-      <TabBar activeTab={activeTab} setActiveTab={setActiveTab} completeness={completeness} T={T} />
+      <TabBar activeTab={activeTab} setActiveTab={setActiveTab} completeness={completeness} T={T} tabs={visibleTabs} />
 
       <div className="min-h-[360px]">{renderTabContent()}</div>
 
