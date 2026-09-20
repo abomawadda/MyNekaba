@@ -9,7 +9,10 @@ function getProjectId() {
 }
 
 export function getStorageBucketName(env = process.env) {
-  return env.FIREBASE_STORAGE_BUCKET || env.VITE_FIREBASE_STORAGE_BUCKET || "";
+  const projectId = env.FIREBASE_PROJECT_ID || env.GCLOUD_PROJECT || "";
+  return env.FIREBASE_STORAGE_BUCKET
+    || env.VITE_FIREBASE_STORAGE_BUCKET
+    || (projectId ? `${projectId}.firebasestorage.app` : "");
 }
 
 function getCredential() {

@@ -523,7 +523,7 @@ test("phase 22j.6 endpoints expose no persistent download URL or arbitrary path 
   assert.doesNotMatch(sources, /body\.path|body\.storagePath/);
 });
 
-test("phase 22j.6 server Storage bucket prefers the server env and supports the existing public Firebase env", () => {
+test("phase 22j.6 server Storage bucket resolves from explicit env or the trusted project id", () => {
   assert.equal(getStorageBucketName({
     FIREBASE_STORAGE_BUCKET: "server-bucket",
     VITE_FIREBASE_STORAGE_BUCKET: "public-bucket",
@@ -531,6 +531,9 @@ test("phase 22j.6 server Storage bucket prefers the server env and supports the 
   assert.equal(getStorageBucketName({
     VITE_FIREBASE_STORAGE_BUCKET: "public-bucket",
   }), "public-bucket");
+  assert.equal(getStorageBucketName({
+    FIREBASE_PROJECT_ID: "nekaba2026",
+  }), "nekaba2026.firebasestorage.app");
   assert.equal(getStorageBucketName({}), "");
 });
 
