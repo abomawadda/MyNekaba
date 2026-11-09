@@ -4,14 +4,18 @@ import {
   collection,
   deleteDoc,
   doc,
+  getCountFromServer,
+  getDocs,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
+  setDoc,
   updateDoc,
+  where,
 } from "firebase/firestore";
 import clsx from "clsx";
-import { Megaphone, Plus, Trash2, X } from "lucide-react";
+import { Globe, Megaphone, Plus, Trash2, X } from "lucide-react";
 import { db } from "../../app/providers/FirebaseProvider";
 import { useT } from "../../app/providers/ThemeProvider";
 import { logAuditEvent } from "../../utils/auditLog";
@@ -62,6 +66,29 @@ export default function NewsManager() {
     }
   };
 
+  // Publishes a minimal, non-sensitive snapshot (count + board names/roles) readable by visitors.
+  const handlePublishSummary = async () => {
+    try {
+      const [countSnap, boardSnap] = await Promise.all([
+        getCountFromServer(collection(db, "employees")),
+        getDocs(query(collection(db, "board_memberships"), where("status", "==", "active"))),
+      ]);
+      const board = boardSnap.docs
+        .map((d) => d.data())
+        .map((m) => ({ name: String(m.memberName || m.name || "").trim(), role: String(m.role || "").trim() }))
+        .filter((m) => m.name);
+      await setDoc(doc(db, "public_site", "summary"), {
+        memberCount: countSnap.data().count,
+        board,
+        updatedAt: serverTimestamp(),
+      });
+      await logAuditEvent("public_site.summary_published", { page: "/security" });
+      showToast("تم تحديث بيانات الصفحة العامة.");
+    } catch (e) {
+      showToast(e.message || "تعذر تحديث بيانات الصفحة العامة.", "error");
+    }
+  };
+
   const handleDelete = async (id) => {
     if (!window.confirm("حذف هذا الخبر نهائياً؟")) return;
     try {
@@ -80,7 +107,12 @@ export default function NewsManager() {
           <Megaphone size={16} className="text-amber-600" />
           أخبار وإعلانات الموقع العام
         </h2>
-        <span className="text-[10px] font-black text-slate-400">{items.length} خبر</span>
+        <div className="flex items-center gap-2">
+          <button onClick={handlePublishSummary} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-brand-50 text-brand-700 text-[10px] font-black hover:bg-brand-100" title="نشر عدد الأعضاء وتشكيل المجلس على الصفحة الرئيسية">
+            <Globe size={12} /> تحديث بيانات الصفحة العامة
+          </button>
+          <span className="text-[10px] font-black text-slate-400">{items.length} خبر</span>
+        </div>
       </div>
       <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-3">
         <input value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} placeholder="عنوان الخبر" className={clsx("px-3 py-2.5 rounded-xl border text-xs font-bold", T.inp)} />

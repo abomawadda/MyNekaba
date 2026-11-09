@@ -21,6 +21,10 @@ function getFriendlyAuthError(error) {
   const raw = String(error?.message || error?.code || error || "");
   const lower = raw.toLowerCase();
 
+  if (/قيد المراجعة|pending/.test(lower)) {
+    return { type: "pending", message: "حسابك قيد المراجعة من إدارة النقابة. سيتم إشعارك بعد التفعيل، ويمكنك بعدها الدخول للحجز وطلب الخدمات." };
+  }
+
   if (/digest|crypto\.subtle|subtle/.test(lower)) {
     return {
       type: "secure-context",
@@ -154,25 +158,42 @@ export default function LoginPage() {
   const ErrorIcon = errorIcon;
 
   return (
-    <main className="relative min-h-[100dvh] overflow-hidden bg-slate-50 px-4 py-6 sm:py-10" dir="rtl">
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -right-28 -top-24 h-80 w-80 rounded-full bg-brand-600/10 blur-3xl" />
-        <div className="absolute -bottom-32 -left-24 h-96 w-96 rounded-full bg-violet-500/10 blur-3xl" />
-        <div className="absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-brand-50/80 to-transparent" />
-      </div>
+    <main className="min-h-[100dvh] bg-slate-50 lg:grid lg:grid-cols-[1.05fr_1fr]" dir="rtl">
+      {/* Brand panel */}
+      <aside className="relative hidden overflow-hidden bg-gradient-to-br from-brand-900 via-brand-700 to-brand-500 p-12 text-white lg:flex lg:flex-col lg:justify-between">
+        <div className="pointer-events-none absolute -left-24 -top-24 h-96 w-96 rounded-full bg-white/10 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-32 right-0 h-[26rem] w-[26rem] rounded-full bg-fuchsia-400/20 blur-3xl" />
+        <Link to="/" className="relative flex items-center gap-3">
+          <img src="/brand-left.png" alt="" className="h-12 w-12 rounded-2xl bg-white object-contain p-1.5" />
+          <span className="text-sm font-black">النقابة العامة للعاملين بالاتصالات</span>
+        </Link>
+        <div className="relative max-w-md">
+          <h2 className="text-4xl font-black leading-[1.4]">بوابتك الموحدة لخدمات النقابة</h2>
+          <p className="mt-4 text-sm font-semibold leading-8 text-white/75">
+            حساب واحد للأعضاء وفريق العمل: احجز الرحلات، اطلب الخدمات، وتابع مزاياك وطلباتك لحظة بلحظة.
+          </p>
+          <ul className="mt-8 space-y-3 text-sm font-bold">
+            {["طلب حجز الرحلات والمصايف إلكترونياً", "متابعة حالة الطلبات والحجوزات", "سجل المزايا والخدمات المصروفة", "حماية الحساب وإدارة الجلسات"].map((item) => (
+              <li key={item} className="flex items-center gap-2.5">
+                <ShieldCheck size={18} className="shrink-0 text-fuchsia-200" /> {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <p className="relative text-[11px] font-bold text-white/50">© {new Date().getFullYear()} النقابة العامة للعاملين بالاتصالات</p>
+      </aside>
 
-      <section className="relative mx-auto flex min-h-[calc(100dvh-3rem)] w-full max-w-md items-center sm:min-h-[calc(100dvh-5rem)]">
-        <div className="w-full overflow-hidden rounded-[28px] border border-white/80 bg-white/95 shadow-[0_26px_80px_rgba(15,23,42,0.12)] backdrop-blur">
-          <header className="border-b border-slate-100 bg-gradient-to-b from-brand-50/80 via-white to-white px-6 pb-6 pt-7 sm:px-8">
-            <BrandLockup />
-            <div className="mt-5 text-center">
-              <p className="mb-1 text-[11px] font-black tracking-wide text-brand-700">منظومة الخدمات النقابية الرقمية</p>
-              <h1 className="text-2xl font-black text-slate-950">نظام النقابة العامة</h1>
-              <p className="mt-2 text-xs font-semibold leading-6 text-slate-500">سجّل الدخول للوصول إلى الخدمات والبيانات المصرح بها.</p>
-            </div>
-          </header>
+      {/* Form panel */}
+      <section className="flex min-h-[100dvh] items-center justify-center px-4 py-8 sm:px-8">
+        <div className="w-full max-w-md">
+          <div className="mb-8 text-center lg:text-right">
+            <div className="lg:hidden"><BrandLockup /></div>
+            <p className="mt-5 text-[11px] font-black tracking-wide text-brand-700 lg:mt-0">منظومة الخدمات النقابية الرقمية</p>
+            <h1 className="mt-1 text-3xl font-black text-slate-950">تسجيل الدخول</h1>
+            <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">أهلاً بعودتك. أدخل بيانات حسابك للمتابعة.</p>
+          </div>
 
-          <div className="px-6 py-6 sm:px-8 sm:py-7">
+          <div className="rounded-[28px] border border-slate-200/80 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)] sm:p-8">
             {resetComplete && (
               <div role="status" className="mb-5 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-800">
                 <div className="flex items-center gap-2 text-sm font-black">
@@ -182,10 +203,6 @@ export default function LoginPage() {
                 <p className="mt-1 text-xs font-bold leading-5">يمكنك الآن تسجيل الدخول باستخدام كلمة المرور الجديدة.</p>
               </div>
             )}
-            <div className="mb-5 flex items-center gap-2 rounded-2xl bg-slate-50 px-3.5 py-3 text-[11px] font-bold text-slate-500">
-              <ShieldCheck size={16} className="shrink-0 text-brand-600" />
-              اتصال آمن وحسابات مخصصة لمنسوبي المنظومة
-            </div>
 
             <form className="space-y-4" onSubmit={onSubmit} noValidate>
               <AuthField
@@ -195,10 +212,11 @@ export default function LoginPage() {
                 onChange={(event) => setForm((prev) => ({ ...prev, identifier: event.target.value }))}
                 onBlur={() => setTouched((prev) => ({ ...prev, identifier: true }))}
                 error={touched.identifier ? fieldErrors.identifier : ""}
-                placeholder="الهاتف أو البريد الإلكتروني أو اسم المستخدم"
+                placeholder="الكود الوظيفي أو الهاتف أو البريد الإلكتروني"
                 autoComplete="username"
                 autoCapitalize="none"
                 spellCheck={false}
+                autoFocus
               />
 
               <AuthField
@@ -209,7 +227,7 @@ export default function LoginPage() {
                 onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
                 onBlur={() => setTouched((prev) => ({ ...prev, password: true }))}
                 error={touched.password ? fieldErrors.password : ""}
-                placeholder="كلمة المرور"
+                placeholder="••••••••"
                 autoComplete="current-password"
               />
 
@@ -228,23 +246,27 @@ export default function LoginPage() {
 
               <button
                 type="submit"
-                disabled={loading || !isFormValid}
-                className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 px-4 text-sm font-black text-white shadow-lg shadow-brand-600/15 transition hover:bg-brand-700 focus:outline-none focus:ring-4 focus:ring-brand-500/20 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={loading}
+                className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 px-4 text-sm font-black text-white shadow-lg shadow-brand-600/20 transition hover:bg-brand-700 focus:outline-none focus:ring-4 focus:ring-brand-500/20 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {loading ? <LoaderCircle size={18} className="animate-spin" /> : <ShieldCheck size={18} />}
                 {loading ? "جارٍ تسجيل الدخول..." : "تسجيل الدخول"}
               </button>
             </form>
 
-            <div className="mt-6 border-t border-slate-100 pt-5 text-center">
-              <p className="text-xs font-semibold text-slate-500">
-                لا تملك حسابًا؟{" "}
-                <Link to="/register" className="font-black text-brand-700 hover:underline">إنشاء حساب عضو</Link>
-              </p>
-              <Link to="/" className="mt-4 inline-flex items-center gap-1 text-[11px] font-bold text-slate-400 transition hover:text-slate-600">
-                العودة للصفحة الرئيسية <ArrowLeft size={13} />
+            <div className="mt-6 rounded-2xl bg-brand-50/70 p-4 text-center">
+              <p className="text-xs font-bold text-slate-600">عضو بالنقابة وليس لديك حساب؟</p>
+              <Link to="/register" className="mt-2 inline-flex items-center gap-1 text-sm font-black text-brand-700 hover:underline">
+                إنشاء حساب عضو <ArrowLeft size={14} />
               </Link>
             </div>
+          </div>
+
+          <div className="mt-6 flex items-center justify-between text-[11px] font-bold text-slate-400">
+            <span className="flex items-center gap-1.5"><ShieldCheck size={14} className="text-brand-600" /> اتصال آمن ومشفّر</span>
+            <Link to="/" className="inline-flex items-center gap-1 transition hover:text-slate-600">
+              الصفحة الرئيسية <ArrowLeft size={13} />
+            </Link>
           </div>
         </div>
       </section>

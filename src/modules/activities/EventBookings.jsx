@@ -34,6 +34,7 @@ import {
   sortMembersByAgeThenJobId,
 } from "../../utils/memberBenefits";
 import { sortBoardMembersUnified } from "../board/boardMembershipRules";
+import MemberRequestsPanel from "./MemberRequestsPanel";
 import {
   canExportSensitiveBookings,
   canManageBookings as resolveCanManageBookings,
@@ -798,6 +799,8 @@ export default function EventBookings() {
         icon={getModuleIcon("/activities/bookings")}
         crumbs={[{ label: "الخدمات النقابية" }, { label: "الحجز والتذاكر" }]}
       />
+
+      {canManageBookings && <MemberRequestsPanel />}
 
       {/* ── رأس الصفحة واختيار الفعالية ── */}
       <div className="rounded-3xl border border-indigo-100 dark:border-indigo-900/40 shadow-sm overflow-hidden">

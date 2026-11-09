@@ -170,8 +170,45 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // الأخبار العامة: يقرأها الزوار، ويديرها المدير فقط.
+    match /site_news/{id} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ملخص عام غير حساس (عدد الأعضاء + أسماء ومناصب المجلس) تنشره الإدارة للصفحة الرئيسية.
+    match /public_site/{id} {
+      allow read: if true;
+      allow create, update: if isStaff() && myRole() != 'auditor';
+      allow delete: if isAdmin();
+    }
+
+    // طلبات الحجز والخدمات من بوابة العضو: العضو ينشئ طلباً باسمه فقط، والإدارة تراجع.
+    match /booking_requests/{id} {
+      function ownsRequestTarget(memberId) {
+        return memberId == currentUserEmployeeId()
+          || (currentUserEmployeeCode() != '' && memberId == currentUserEmployeeCode());
+      }
+      allow read: if isStaff() || (isMember() && ownsRequestTarget(resource.data.memberId));
+      allow create: if isMember()
+        && ownsRequestTarget(request.resource.data.memberId)
+        && request.resource.data.accountId == accountId()
+        && request.resource.data.status == 'pending'
+        && request.resource.data.companions is int
+        && request.resource.data.companions >= 0
+        && request.resource.data.companions <= 10;
+      allow update: if (isStaff() && myRole() != 'auditor')
+        || (isMember()
+          && ownsRequestTarget(resource.data.memberId)
+          && resource.data.status == 'pending'
+          && request.resource.data.status == 'cancelled'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt']));
+      allow delete: if isAdmin();
+    }
+
     match /events/{id} {
-      allow read: if isStaff() || isMember();
+      // الفعاليات إعلانات عامة تظهر في الصفحة الرئيسية للزوار.
+      allow read: if true;
       allow create, update: if isAdmin() || isTreasurer();
       allow delete: if isAdmin();
     }

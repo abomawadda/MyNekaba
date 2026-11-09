@@ -1,82 +1,125 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
-import { Bus, Gift, Megaphone, Menu, ShieldCheck, Users, X } from "lucide-react";
+import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
+import {
+  ArrowLeft,
+  BadgeCheck,
+  Bus,
+  CalendarDays,
+  CheckCircle2,
+  ClipboardCheck,
+  Gift,
+  LogIn,
+  MapPin,
+  Megaphone,
+  Menu,
+  ShieldCheck,
+  Sparkles,
+  UserPlus,
+  Users,
+  X,
+} from "lucide-react";
 import { db } from "../../app/providers/FirebaseProvider";
 import { UNION_ACTIVITY_TYPES } from "../activities/union/activityConfig";
 import { formatMoney } from "../../utils/numberFormat";
 
 const NAV = [
   { id: "home", label: "الرئيسية" },
-  { id: "about", label: "من نحن" },
   { id: "services", label: "الخدمات" },
-  { id: "trips", label: "الرحلات" },
+  { id: "trips", label: "الرحلات والفعاليات" },
   { id: "news", label: "الأخبار" },
   { id: "board", label: "مجلس الإدارة" },
-  { id: "contact", label: "التواصل" },
+  { id: "how", label: "كيف أبدأ" },
+  { id: "contact", label: "تواصل معنا" },
 ];
 
-export default function PublicHome() {
-  const [menuOpen, setMenuOpen] = useState(false);
+const STEPS = [
+  { icon: UserPlus, title: "أنشئ حسابك", text: "سجّل بكودك الوظيفي ورقمك القومي ليتم ربط الحساب بسجلك في النقابة." },
+  { icon: ClipboardCheck, title: "اعتماد الحساب", text: "تراجع إدارة النقابة بياناتك وتفعّل الحساب كعضو معتمد." },
+  { icon: Sparkles, title: "احجز واستفد", text: "اطلب حجز الرحلات والخدمات وتابع حجوزاتك ومزاياك من بوابة العضو." },
+];
+
+const BOARD_ORDER = { "رئيس المجلس": 1, "نائب الرئيس": 2, "الأمين العام": 3, "أمين الصندوق": 4 };
+
+function formatArabicDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString("ar-EG", { day: "numeric", month: "long", year: "numeric" });
+}
+
+/** Subscribe to a public collection, ignoring permission errors so the page always renders. */
+function usePublicData() {
   const [events, setEvents] = useState([]);
   const [news, setNews] = useState([]);
-  const [boardMembers, setBoardMembers] = useState([]);
-  const [memberCount, setMemberCount] = useState(0);
+  const [summary, setSummary] = useState(null);
 
   useEffect(() => {
+    if (!db) return undefined;
     const today = new Date().toISOString().slice(0, 10);
+    const ignore = () => {};
     const unsubs = [
-      onSnapshot(query(collection(db, "events"), where("date", ">=", today)), (snap) => {
-        setEvents(
-          snap.docs
-            .map((d) => ({ id: d.id, ...d.data() }))
-            .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")))
-            .slice(0, 6)
-        );
-      }),
-      onSnapshot(query(collection(db, "site_news"), where("active", "!=", false)), (snap) => {
-        setNews(
-          snap.docs
-            .map((d) => ({ id: d.id, ...d.data() }))
-            .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))
-            .slice(0, 6)
-        );
-      }),
-      onSnapshot(query(collection(db, "employees")), (snap) => {
-        setMemberCount(snap.size);
-      }),
+      onSnapshot(
+        query(collection(db, "events"), where("date", ">=", today)),
+        (snap) =>
+          setEvents(
+            snap.docs
+              .map((d) => ({ id: d.id, ...d.data() }))
+              .filter((e) => e.status !== "cancelled" && e.isPublic !== false)
+              .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")))
+              .slice(0, 6)
+          ),
+        ignore
+      ),
+      onSnapshot(
+        query(collection(db, "site_news"), where("active", "==", true)),
+        (snap) =>
+          setNews(
+            snap.docs
+              .map((d) => ({ id: d.id, ...d.data() }))
+              .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))
+              .slice(0, 6)
+          ),
+        ignore
+      ),
+      // Public, non-sensitive snapshot published by staff (member count + board roster).
+      onSnapshot(doc(db, "public_site", "summary"), (snap) => setSummary(snap.exists() ? snap.data() : null), ignore),
     ];
     return () => unsubs.forEach((u) => u());
   }, []);
 
-  useEffect(() => {
-    const unsubM = onSnapshot(query(collection(db, "board_memberships")), (snap) => {
-      const memberships = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      const unsubE = onSnapshot(query(collection(db, "employees")), (snapE) => {
-        const empMap = new Map(snapE.docs.map((d) => [d.id, { id: d.id, ...d.data() }]));
-        const order = { "رئيس المجلس": 1, "الأمين العام": 2, "أمين الصندوق": 3 };
-        setBoardMembers(
-          memberships
-            .filter((m) => m.status === "active")
-            .map((m) => ({ ...m, employee: empMap.get(m.memberId) || {} }))
-            .sort((a, b) => (order[a.role] || 99) - (order[b.role] || 99))
-            .slice(0, 11)
-        );
-      });
-      return unsubE;
-    });
-    return unsubM;
-  }, []);
+  return { events, news, summary };
+}
 
-  const stats = useMemo(
-    () => [
-      { label: "خدمة نقابية", value: UNION_ACTIVITY_TYPES.length, icon: Gift },
-      { label: "رحلة وفعالية قادمة", value: events.length, icon: Bus },
-      { label: "عضو مسجل بالمنظومة", value: memberCount, icon: Users },
-      { label: "عضو مجلس إدارة", value: boardMembers.length, icon: ShieldCheck },
-    ],
-    [events.length, memberCount, boardMembers.length]
+function SectionTitle({ eyebrow, title, text }) {
+  return (
+    <div className="max-w-2xl mb-10">
+      {eyebrow && <p className="text-[11px] font-black tracking-wider text-brand-600 mb-2">{eyebrow}</p>}
+      <h2 className="text-2xl sm:text-3xl font-black text-slate-900">{title}</h2>
+      {text && <p className="mt-3 text-sm font-semibold leading-7 text-slate-500">{text}</p>}
+    </div>
   );
+}
+
+export default function PublicHome() {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const { events, news, summary } = usePublicData();
+
+  const services = useMemo(() => UNION_ACTIVITY_TYPES.filter((t) => !t.installmentsOnly), []);
+  const boardMembers = useMemo(
+    () =>
+      [...(summary?.board || [])]
+        .sort((a, b) => (BOARD_ORDER[a.role] || 99) - (BOARD_ORDER[b.role] || 99))
+        .slice(0, 12),
+    [summary]
+  );
+
+  const stats = [
+    { label: "خدمة نقابية", value: services.length, icon: Gift },
+    { label: "فعالية قادمة", value: events.length, icon: Bus },
+    { label: "عضو مسجل", value: summary?.memberCount ?? "—", icon: Users },
+    { label: "عضو مجلس إدارة", value: boardMembers.length || "—", icon: ShieldCheck },
+  ];
 
   const scrollTo = (id) => {
     setMenuOpen(false);
@@ -85,125 +128,195 @@ export default function PublicHome() {
 
   return (
     <div className="min-h-screen bg-white text-slate-900" dir="rtl">
-      <header className="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-slate-200">
-        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between gap-3">
-          <button onClick={() => scrollTo("home")} className="flex items-center gap-2">
-            <img src="/brand-left.png" alt="شعار النقابة" className="w-10 h-10 object-contain" />
-            <span className="font-black text-sm sm:text-base">النقابة العامة للعاملين بالاتصالات</span>
+      {/* Header */}
+      <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/90 backdrop-blur-md">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-3 px-4">
+          <button onClick={() => scrollTo("home")} className="flex items-center gap-2.5 text-right">
+            <img src="/brand-left.png" alt="شعار النقابة" className="h-10 w-10 object-contain" />
+            <span className="leading-tight">
+              <span className="block text-sm font-black">النقابة العامة للعاملين بالاتصالات</span>
+              <span className="block text-[10px] font-bold text-slate-400">بوابة الخدمات الإلكترونية</span>
+            </span>
           </button>
-          <nav className="hidden lg:flex items-center gap-5">
+          <nav className="hidden items-center gap-1 xl:flex">
             {NAV.map((n) => (
-              <button key={n.id} onClick={() => scrollTo(n.id)} className="text-xs font-black text-slate-600 hover:text-teal-700 transition-colors">
+              <button
+                key={n.id}
+                onClick={() => scrollTo(n.id)}
+                className="rounded-lg px-3 py-2 text-xs font-black text-slate-600 transition-colors hover:bg-brand-50 hover:text-brand-700"
+              >
                 {n.label}
               </button>
             ))}
           </nav>
-          <div className="hidden lg:flex items-center gap-2">
-            <Link to="/login" className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-black hover:bg-slate-50 transition-colors">تسجيل الدخول</Link>
-            <Link to="/register" className="px-4 py-2 rounded-xl bg-teal-600 text-white text-xs font-black hover:bg-teal-700 transition-colors">إنشاء حساب</Link>
+          <div className="hidden items-center gap-2 sm:flex">
+            <Link to="/login" className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2 text-xs font-black transition-colors hover:bg-slate-50">
+              <LogIn size={15} /> تسجيل الدخول
+            </Link>
+            <Link to="/register" className="inline-flex items-center gap-1.5 rounded-xl bg-brand-600 px-4 py-2 text-xs font-black text-white shadow-sm shadow-brand-600/20 transition-colors hover:bg-brand-700">
+              <UserPlus size={15} /> إنشاء حساب
+            </Link>
           </div>
-          <button onClick={() => setMenuOpen((v) => !v)} className="lg:hidden p-2 rounded-xl border border-slate-200">
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            className="rounded-xl border border-slate-200 p-2 xl:hidden"
+            aria-label="القائمة"
+            aria-expanded={menuOpen}
+          >
             {menuOpen ? <X size={18} /> : <Menu size={18} />}
           </button>
         </div>
         {menuOpen && (
-          <div className="lg:hidden border-t border-slate-100 px-4 py-3 space-y-1 bg-white">
+          <div className="space-y-1 border-t border-slate-100 bg-white px-4 py-3 xl:hidden">
             {NAV.map((n) => (
-              <button key={n.id} onClick={() => scrollTo(n.id)} className="block w-full text-right py-2 text-sm font-black text-slate-700">
+              <button key={n.id} onClick={() => scrollTo(n.id)} className="block w-full rounded-lg px-2 py-2 text-right text-sm font-black text-slate-700 hover:bg-slate-50">
                 {n.label}
               </button>
             ))}
-            <div className="flex gap-2 pt-2">
-              <Link to="/login" className="flex-1 text-center px-4 py-2.5 rounded-xl border text-xs font-black">تسجيل الدخول</Link>
-              <Link to="/register" className="flex-1 text-center px-4 py-2.5 rounded-xl bg-teal-600 text-white text-xs font-black">إنشاء حساب</Link>
+            <div className="flex gap-2 pt-2 sm:hidden">
+              <Link to="/login" className="flex-1 rounded-xl border px-4 py-2.5 text-center text-xs font-black">تسجيل الدخول</Link>
+              <Link to="/register" className="flex-1 rounded-xl bg-brand-600 px-4 py-2.5 text-center text-xs font-black text-white">إنشاء حساب</Link>
             </div>
           </div>
         )}
       </header>
 
-      <section id="home" className="bg-gradient-to-l from-teal-700 via-teal-600 to-emerald-600 text-white">
-        <div className="max-w-6xl mx-auto px-4 py-16 sm:py-24 text-center">
-          <h1 className="text-3xl sm:text-5xl font-black leading-tight">مرحباً بك في المنظومة الإلكترونية للنقابة</h1>
-          <p className="mt-4 text-sm sm:text-base font-bold text-teal-50 max-w-2xl mx-auto leading-8">
-            خدمات الأعضاء والرحلات والمزايا والدعم والخدمات الاجتماعية والمالية — ومتابعة طلباتك من مكان واحد.
-          </p>
-          <div className="mt-8 flex flex-wrap justify-center gap-3">
-            <Link to="/register" className="px-6 py-3 rounded-2xl bg-white text-teal-700 text-sm font-black hover:bg-teal-50 transition-colors">أنشئ حسابك كعضو</Link>
-            <button onClick={() => scrollTo("services")} className="px-6 py-3 rounded-2xl border border-white/40 text-sm font-black hover:bg-white/10 transition-colors">استكشف الخدمات</button>
-          </div>
+      {/* Hero */}
+      <section id="home" className="relative overflow-hidden bg-gradient-to-br from-brand-900 via-brand-700 to-brand-500 text-white">
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute -left-20 -top-24 h-96 w-96 rounded-full bg-white/10 blur-3xl" />
+          <div className="absolute -bottom-32 right-0 h-[28rem] w-[28rem] rounded-full bg-fuchsia-400/20 blur-3xl" />
         </div>
-      </section>
-
-      <section id="about" className="max-w-6xl mx-auto px-4 py-14">
-        <h2 className="text-xl font-black mb-2">من نحن</h2>
-        <p className="text-sm font-bold text-slate-500 leading-8 max-w-3xl">
-          النقابة العامة للعاملين بالاتصالات — تنظيم عمالي يخدم أعضاءه من العاملين بالشركة عبر الخدمات الاجتماعية والثقافية والمالية، ويديره مجلس إدارة منتخب من الجمعية العمومية.
-        </p>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-8">
-          {stats.map((s) => (
-            <div key={s.label} className="p-5 rounded-2xl border border-slate-200 bg-slate-50 text-center">
-              <s.icon size={20} className="mx-auto text-teal-600" />
-              <p className="text-2xl font-black mt-2">{s.value}</p>
-              <p className="text-[11px] font-black text-slate-500 mt-1">{s.label}</p>
+        <div className="relative mx-auto grid max-w-7xl items-center gap-12 px-4 py-16 sm:py-24 lg:grid-cols-2">
+          <div>
+            <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[11px] font-black">
+              <BadgeCheck size={14} /> المنظومة الرقمية الرسمية للأعضاء
+            </span>
+            <h1 className="mt-5 text-3xl font-black leading-[1.35] sm:text-5xl sm:leading-[1.3]">
+              خدماتك النقابية
+              <br />
+              <span className="text-fuchsia-200">في مكان واحد</span>
+            </h1>
+            <p className="mt-5 max-w-xl text-sm font-semibold leading-8 text-white/80 sm:text-base">
+              احجز الرحلات والمصايف، واطلب الخدمات الاجتماعية والمالية، وتابع حجوزاتك ومزاياك كعضو في النقابة العامة للعاملين بالاتصالات.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <Link to="/register" className="inline-flex items-center gap-2 rounded-2xl bg-white px-6 py-3 text-sm font-black text-brand-700 shadow-lg shadow-black/10 transition-colors hover:bg-brand-50">
+                أنشئ حساب العضو <ArrowLeft size={16} />
+              </Link>
+              <Link to="/login" className="inline-flex items-center gap-2 rounded-2xl border border-white/30 px-6 py-3 text-sm font-black transition-colors hover:bg-white/10">
+                <LogIn size={16} /> دخول الأعضاء
+              </Link>
             </div>
-          ))}
-        </div>
-      </section>
+          </div>
 
-      <section id="services" className="bg-slate-50 border-y border-slate-200">
-        <div className="max-w-6xl mx-auto px-4 py-14">
-          <h2 className="text-xl font-black mb-1">خدمات النقابة</h2>
-          <p className="text-xs font-bold text-slate-500 mb-8">منظومة الخدمات النقابية — سجل الدخول للاستفادة والحجز.</p>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            {UNION_ACTIVITY_TYPES.filter((t) => !t.installmentsOnly).map((t) => (
-              <div key={t.id} className="p-5 rounded-2xl bg-white border border-slate-200 text-center hover:shadow-md transition-shadow">
-                <span className="text-3xl">{t.icon}</span>
-                <p className="text-sm font-black mt-2">{t.title}</p>
-                <p className="text-[10px] font-bold text-slate-400 mt-1">{t.subtitle}</p>
+          <div className="grid grid-cols-2 gap-3">
+            {stats.map((s) => (
+              <div key={s.label} className="rounded-3xl border border-white/15 bg-white/10 p-5 backdrop-blur">
+                <s.icon size={22} className="text-fuchsia-200" />
+                <p className="mt-4 text-3xl font-black">{s.value}</p>
+                <p className="mt-1 text-xs font-bold text-white/70">{s.label}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      <section id="trips" className="max-w-6xl mx-auto px-4 py-14">
-        <h2 className="text-xl font-black mb-1 flex items-center gap-2"><Bus size={20} className="text-teal-600" /> الرحلات المتاحة</h2>
-        <p className="text-xs font-bold text-slate-500 mb-8">احجز بعد تسجيل الدخول بحساب العضو.</p>
-        {events.length === 0 ? (
-          <p className="text-sm font-bold text-slate-400">لا توجد رحلات معلنة حالياً.</p>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {events.map((e) => (
-              <div key={e.id} className="rounded-2xl border border-slate-200 overflow-hidden hover:shadow-md transition-shadow">
-                <div className="p-5">
-                  <p className="text-sm font-black">{e.title}</p>
-                  <p className="text-[11px] font-bold text-slate-400 mt-1">{e.date || ""} • {e.location || ""}</p>
-                  <div className="flex justify-between items-center mt-3 text-xs font-black">
-                    <span className="text-teal-700">{e.isFree ? "مجاني" : formatMoney(e.memberPrice)}</span>
-                    <span className="text-slate-400">الأماكن: {e.capacity || "—"}</span>
+      {/* Services */}
+      <section id="services" className="mx-auto max-w-7xl px-4 py-20">
+        <SectionTitle
+          eyebrow="خدمات الأعضاء"
+          title="منظومة الخدمات النقابية"
+          text="مجموعة متكاملة من الخدمات المتاحة لأعضاء الجمعية العمومية. سجّل الدخول بحساب العضو لتقديم الطلبات والحجز."
+        />
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          {services.map((t) => (
+            <Link
+              to="/login"
+              key={t.id}
+              className="group rounded-3xl border border-slate-200 bg-white p-5 transition-all hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-xl hover:shadow-brand-900/5"
+            >
+              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-50 text-2xl">{t.icon}</span>
+              <p className="mt-4 text-sm font-black">{t.title}</p>
+              <p className="mt-1 text-[11px] font-bold leading-5 text-slate-400">{t.subtitle}</p>
+              <span className="mt-4 inline-flex items-center gap-1 text-[11px] font-black text-brand-600 opacity-0 transition-opacity group-hover:opacity-100">
+                اطلب الخدمة <ArrowLeft size={12} />
+              </span>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      {/* Trips */}
+      <section id="trips" className="border-y border-slate-200 bg-slate-50">
+        <div className="mx-auto max-w-7xl px-4 py-20">
+          <SectionTitle eyebrow="احجز مكانك" title="الرحلات والفعاليات القادمة" text="الحجز متاح لأعضاء الجمعية العمومية بعد تسجيل الدخول." />
+          {events.length === 0 ? (
+            <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center">
+              <Bus size={28} className="mx-auto text-slate-300" />
+              <p className="mt-3 text-sm font-bold text-slate-400">لا توجد رحلات معلنة حالياً — تابعنا قريباً.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {events.map((e) => (
+                <article key={e.id} className="flex flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white transition-shadow hover:shadow-xl hover:shadow-brand-900/5">
+                  <div className="flex items-center justify-between bg-gradient-to-l from-brand-600 to-brand-500 px-5 py-4 text-white">
+                    <span className="text-[11px] font-black text-white/80">{e.type || "فعالية"}</span>
+                    <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-black">{e.isFree ? "مجاني" : formatMoney(e.memberPrice)}</span>
                   </div>
-                  <Link to="/login" className="block text-center mt-4 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-black hover:bg-slate-700 transition-colors">
-                    سجل الدخول للحجز وعرض التفاصيل
-                  </Link>
-                </div>
-              </div>
+                  <div className="flex flex-1 flex-col p-5">
+                    <h3 className="text-base font-black">{e.title}</h3>
+                    <div className="mt-3 space-y-1.5 text-xs font-bold text-slate-500">
+                      <p className="flex items-center gap-1.5"><CalendarDays size={14} className="text-brand-500" /> {formatArabicDate(e.date)}</p>
+                      {e.location && <p className="flex items-center gap-1.5"><MapPin size={14} className="text-brand-500" /> {e.location}</p>}
+                      {e.capacity && <p className="flex items-center gap-1.5"><Users size={14} className="text-brand-500" /> السعة: {e.capacity}</p>}
+                    </div>
+                    <Link to="/login" className="mt-5 block rounded-2xl bg-slate-900 py-3 text-center text-xs font-black text-white transition-colors hover:bg-brand-700">
+                      سجّل الدخول لطلب الحجز
+                    </Link>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* News */}
+      <section id="news" className="mx-auto max-w-7xl px-4 py-20">
+        <SectionTitle eyebrow="المركز الإعلامي" title="آخر الأخبار والإعلانات" />
+        {news.length === 0 ? (
+          <p className="text-sm font-bold text-slate-400">لا توجد إعلانات حالياً.</p>
+        ) : (
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {news.map((n) => (
+              <article key={n.id} className="rounded-3xl border border-slate-200 p-6 transition-shadow hover:shadow-lg">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-[10px] font-black text-amber-700">
+                  <Megaphone size={12} /> {formatArabicDate(n.date)}
+                </span>
+                <h3 className="mt-3 text-sm font-black leading-6">{n.title}</h3>
+                <p className="mt-2 line-clamp-4 text-xs font-semibold leading-6 text-slate-500">{n.body}</p>
+              </article>
             ))}
           </div>
         )}
       </section>
 
-      <section id="news" className="bg-slate-50 border-y border-slate-200">
-        <div className="max-w-6xl mx-auto px-4 py-14">
-          <h2 className="text-xl font-black mb-8 flex items-center gap-2"><Megaphone size={20} className="text-amber-600" /> آخر الأخبار والإعلانات</h2>
-          {news.length === 0 ? (
-            <p className="text-sm font-bold text-slate-400">لا توجد إعلانات حالياً.</p>
+      {/* Board */}
+      <section id="board" className="border-y border-slate-200 bg-slate-50">
+        <div className="mx-auto max-w-7xl px-4 py-20">
+          <SectionTitle eyebrow="القيادة النقابية" title="مجلس إدارة النقابة" text="مجلس منتخب من الجمعية العمومية لخدمة الأعضاء ورعاية مصالحهم." />
+          {boardMembers.length === 0 ? (
+            <p className="text-sm font-bold text-slate-400">سيتم إعلان التشكيل قريباً.</p>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {news.map((n) => (
-                <div key={n.id} className="p-5 rounded-2xl bg-white border border-slate-200">
-                  <p className="text-[10px] font-black text-amber-600">{n.date || ""}</p>
-                  <p className="text-sm font-black mt-1">{n.title}</p>
-                  <p className="text-xs font-bold text-slate-500 mt-2 leading-7">{n.body}</p>
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+              {boardMembers.map((m, i) => (
+                <div key={`${m.name}-${i}`} className="rounded-3xl border border-slate-200 bg-white p-5 text-center">
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 text-lg font-black text-white">
+                    {(m.name || "?").trim().charAt(0)}
+                  </div>
+                  <p className="mt-3 text-xs font-black">{m.name}</p>
+                  <p className="mt-1 text-[10px] font-black text-brand-600">{m.role}</p>
                 </div>
               ))}
             </div>
@@ -211,51 +324,59 @@ export default function PublicHome() {
         </div>
       </section>
 
-      <section id="board" className="max-w-6xl mx-auto px-4 py-14">
-        <h2 className="text-xl font-black mb-8">مجلس إدارة النقابة</h2>
-        {boardMembers.length === 0 ? (
-          <p className="text-sm font-bold text-slate-400">سيتم إعلان التشكيل قريباً.</p>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            {boardMembers.map((m) => (
-              <div key={m.id} className="p-4 rounded-2xl border border-slate-200 text-center">
-                <div className="w-12 h-12 mx-auto rounded-full bg-teal-100 text-teal-700 flex items-center justify-center font-black">
-                  {(m.employee?.name || m.memberName || "?").trim().charAt(0)}
-                </div>
-                <p className="text-xs font-black mt-2">{m.employee?.name || m.memberName}</p>
-                <p className="text-[10px] font-black text-amber-600 mt-0.5">{m.role}</p>
-              </div>
-            ))}
+      {/* How to start */}
+      <section id="how" className="mx-auto max-w-7xl px-4 py-20">
+        <SectionTitle eyebrow="ثلاث خطوات" title="كيف تبدأ الاستفادة من خدماتك؟" />
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+          {STEPS.map((s, i) => (
+            <div key={s.title} className="relative rounded-3xl border border-slate-200 p-6">
+              <span className="absolute left-6 top-6 text-4xl font-black text-slate-100">{i + 1}</span>
+              <s.icon size={26} className="text-brand-600" />
+              <h3 className="mt-4 text-sm font-black">{s.title}</h3>
+              <p className="mt-2 text-xs font-semibold leading-6 text-slate-500">{s.text}</p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-10 flex flex-col items-center justify-between gap-4 rounded-3xl bg-brand-50 p-6 sm:flex-row">
+          <div className="flex items-center gap-3">
+            <CheckCircle2 size={22} className="shrink-0 text-brand-600" />
+            <p className="text-sm font-black text-brand-900">حسابك هو بوابتك للحجز وطلب الخدمات ومتابعة مزاياك.</p>
           </div>
-        )}
+          <Link to="/register" className="rounded-2xl bg-brand-600 px-6 py-3 text-xs font-black text-white hover:bg-brand-700">ابدأ الآن</Link>
+        </div>
       </section>
 
-      <section id="contact" className="bg-slate-900 text-white">
-        <div className="max-w-6xl mx-auto px-4 py-14 grid grid-cols-1 sm:grid-cols-3 gap-8">
+      {/* Footer */}
+      <footer id="contact" className="bg-slate-950 text-white">
+        <div className="mx-auto grid max-w-7xl grid-cols-1 gap-10 px-4 py-14 sm:grid-cols-3">
           <div>
-            <p className="font-black mb-2">النقابة العامة للعاملين بالاتصالات</p>
-            <p className="text-xs font-bold text-slate-400 leading-7">منظومة إلكترونية لخدمة الأعضاء — الخدمات والرحلات والمزايا والمتابعة.</p>
+            <div className="flex items-center gap-2">
+              <img src="/brand-left.png" alt="" className="h-10 w-10 rounded-xl bg-white object-contain p-1" />
+              <p className="font-black">النقابة العامة للعاملين بالاتصالات</p>
+            </div>
+            <p className="mt-4 text-xs font-semibold leading-7 text-slate-400">منظومة إلكترونية لخدمة الأعضاء — الخدمات والرحلات والمزايا والمتابعة.</p>
           </div>
           <div>
-            <p className="font-black mb-3 text-sm">روابط مهمة</p>
-            <div className="space-y-2 text-xs font-bold text-slate-300">
-              {NAV.slice(1, 6).map((n) => (
-                <button key={n.id} onClick={() => scrollTo(n.id)} className="block hover:text-white transition-colors">{n.label}</button>
+            <p className="mb-4 text-sm font-black">روابط سريعة</p>
+            <div className="grid grid-cols-2 gap-2 text-xs font-bold text-slate-400">
+              {NAV.slice(1).map((n) => (
+                <button key={n.id} onClick={() => scrollTo(n.id)} className="text-right transition-colors hover:text-white">{n.label}</button>
               ))}
             </div>
           </div>
           <div>
-            <p className="font-black mb-3 text-sm">حسابك</p>
-            <div className="flex gap-2">
-              <Link to="/login" className="px-4 py-2 rounded-xl bg-white text-slate-900 text-xs font-black">دخول</Link>
-              <Link to="/register" className="px-4 py-2 rounded-xl bg-teal-600 text-white text-xs font-black">حساب جديد</Link>
+            <p className="mb-4 text-sm font-black">حسابك</p>
+            <div className="flex flex-wrap gap-2">
+              <Link to="/login" className="rounded-xl bg-white px-4 py-2 text-xs font-black text-slate-900">تسجيل الدخول</Link>
+              <Link to="/register" className="rounded-xl bg-brand-600 px-4 py-2 text-xs font-black text-white">حساب جديد</Link>
+              <Link to="/reset-password" className="rounded-xl border border-slate-700 px-4 py-2 text-xs font-black text-slate-300">استعادة كلمة المرور</Link>
             </div>
           </div>
         </div>
-        <div className="border-t border-slate-800 py-4 text-center text-[10px] font-bold text-slate-500">
-          جميع الحقوق محفوظة للنقابة العامة للعاملين بالاتصالات
+        <div className="border-t border-slate-800 py-5 text-center text-[11px] font-bold text-slate-500">
+          © {new Date().getFullYear()} جميع الحقوق محفوظة للنقابة العامة للعاملين بالاتصالات
         </div>
-      </section>
+      </footer>
     </div>
   );
 }
