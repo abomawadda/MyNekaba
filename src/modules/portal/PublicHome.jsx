@@ -20,6 +20,8 @@ import {
   X,
 } from "lucide-react";
 import { db } from "../../app/providers/FirebaseProvider";
+import { USE_SUPABASE, supabase } from "../../lib/backend";
+import { mapEvent } from "./data/mappers";
 import { UNION_ACTIVITY_TYPES } from "../activities/union/activityConfig";
 import { formatMoney } from "../../utils/numberFormat";
 
@@ -49,7 +51,7 @@ function formatArabicDate(value) {
 }
 
 /** Subscribe to a public collection, ignoring permission errors so the page always renders. */
-function usePublicData() {
+function usePublicDataFirebase() {
   const [events, setEvents] = useState([]);
   const [news, setNews] = useState([]);
   const [summary, setSummary] = useState(null);
@@ -90,6 +92,37 @@ function usePublicData() {
 
   return { events, news, summary };
 }
+
+/** Supabase variant: anon RLS exposes only public events, active news and the two public RPCs. */
+function usePublicDataSupabase() {
+  const [data, setData] = useState({ events: [], news: [], summary: null });
+
+  useEffect(() => {
+    if (!supabase) return undefined;
+    let active = true;
+    const today = new Date().toISOString().slice(0, 10);
+    Promise.all([
+      supabase.from("events").select("id, title, type, event_date, location, capacity, is_free, member_price, status").gte("event_date", today).neq("status", "cancelled").order("event_date").limit(6),
+      supabase.from("site_news").select("id, title, body, news_date").order("news_date", { ascending: false }).limit(6),
+      supabase.rpc("public_stats"),
+      supabase.rpc("public_board"),
+    ]).then(([events, news, stats, board]) => {
+      if (!active) return;
+      setData({
+        events: (events.data || []).map(mapEvent),
+        news: (news.data || []).map((n) => ({ id: n.id, title: n.title, body: n.body, date: n.news_date })),
+        summary: stats.data ? { memberCount: stats.data.member_count, board: board.data || [] } : null,
+      });
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return data;
+}
+
+const usePublicData = USE_SUPABASE ? usePublicDataSupabase : usePublicDataFirebase;
 
 function SectionTitle({ eyebrow, title, text }) {
   return (

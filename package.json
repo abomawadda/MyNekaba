@@ -12,6 +12,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.119.0",
     "@tailwindcss/postcss": "^4.2.2",
     "clsx": "^2.1.1",
     "firebase": "^12.11.0",

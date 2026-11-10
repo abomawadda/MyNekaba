@@ -104,7 +104,7 @@ const getRoleTitle = (role = "viewer") => {
   }
 };
 
-const AuthContext = createContext(null);
+export const AuthContext = createContext(null);
 
 const normalizeDigits = (value = "") =>
   String(value)

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { useAuth } from "../../app/providers/AuthProvider";
+import { USE_SUPABASE } from "../../lib/backend";
 
 const normalize = (value = "") => String(value).trim();
 
@@ -206,13 +207,13 @@ export default function LoginPage() {
 
             <form className="space-y-4" onSubmit={onSubmit} noValidate>
               <AuthField
-                label="المعرّف"
+                label={USE_SUPABASE ? "الكود الوظيفي" : "المعرّف"}
                 icon={UserRound}
                 value={form.identifier}
                 onChange={(event) => setForm((prev) => ({ ...prev, identifier: event.target.value }))}
                 onBlur={() => setTouched((prev) => ({ ...prev, identifier: true }))}
                 error={touched.identifier ? fieldErrors.identifier : ""}
-                placeholder="الكود الوظيفي أو الهاتف أو البريد الإلكتروني"
+                placeholder={USE_SUPABASE ? "الكود الوظيفي أو اسم المستخدم" : "الكود الوظيفي أو الهاتف أو البريد الإلكتروني"}
                 autoComplete="username"
                 autoCapitalize="none"
                 spellCheck={false}
