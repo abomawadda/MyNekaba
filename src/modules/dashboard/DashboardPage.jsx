@@ -11,12 +11,15 @@ import {
   Landmark,
   LayoutDashboard,
   PlusCircle,
+  Printer,
   ReceiptText,
+  Search,
   ShieldCheck,
   UploadCloud,
   UserCircle,
   Users,
   Wallet,
+  X,
 } from "lucide-react";
 import clsx from "clsx";
 import { db } from "../../app/providers/FirebaseProvider";
@@ -40,7 +43,11 @@ import {
   mergeIssuedChecksSourcesNormalized,
   normalizeRequiresSettlement,
 } from "../treasury/helpers/issuedChecks";
-import { TREASURY_OPENING_BALANCE as OPENING_BALANCE } from "../treasury/helpers/financeLedger";
+import {
+  TREASURY_OPENING_BALANCE as OPENING_BALANCE,
+  getFinanceImpact,
+  isIncomeFinanceType,
+} from "../treasury/helpers/financeLedger";
 import { PERMISSIONS } from "../../security/permissions";
 
 const DIRECT_LEDGER_TYPES = ["deposit", "refund", "subs", "bank_charge"];
@@ -120,8 +127,9 @@ function buildMonthBuckets(transactions) {
     if (!dateKey) return;
     const month = dateKey.slice(0, 7);
     const current = buckets.get(month) || { income: 0, expense: 0, count: 0 };
-    if (tx.type === "deposit") current.income += Number(tx.amount || 0);
-    else current.expense += Number(tx.amount || 0);
+    const impact = getFinanceImpact(tx);
+    current.income += impact.credit;
+    current.expense += impact.debit;
     current.count += 1;
     buckets.set(month, current);
   });
@@ -255,13 +263,70 @@ export default function DashboardPage() {
   }, [canFinance, issuedChecks, legacyTransactions]);
 
   const posted = useMemo(() => transactions.filter(isPosted), [transactions]);
-  const totalIn = useMemo(() => posted.filter((tx) => tx.type === "deposit").reduce((sum, tx) => sum + Number(tx.amount || 0), 0), [posted]);
-  const totalOut = useMemo(() => posted.filter((tx) => tx.type !== "deposit").reduce((sum, tx) => sum + Number(tx.amount || 0), 0), [posted]);
+  const financialTotals = useMemo(() => {
+    let income = 0;
+    let expense = 0;
+    let expenseCount = 0;
+    posted.forEach((tx) => {
+      const impact = getFinanceImpact(tx);
+      income += impact.credit;
+      expense += impact.debit;
+      if (impact.debit > 0) expenseCount += 1;
+    });
+    return { income, expense, expenseCount };
+  }, [posted]);
+  const totalIn = financialTotals.income;
+  const totalOut = financialTotals.expense;
   const balance = OPENING_BALANCE + totalIn - totalOut;
   const openSettlements = useMemo(() => transactions.filter((tx) => normalizeRequiresSettlement(tx) && !tx.isSettled && isPosted(tx)), [transactions]);
   const draftCount = useMemo(() => transactions.filter((tx) => tx.state === "draft").length, [transactions]);
+  const [periodFilter, setPeriodFilter] = useState("all");
+  const [memberSearchQuery, setMemberSearchQuery] = useState("");
+
+  const matchingMembers = useMemo(() => {
+    const q = memberSearchQuery.trim().toLowerCase();
+    if (!q || !canEmployees) return [];
+    return employees
+      .filter((e) => {
+        const name = String(e.name || "").toLowerCase();
+        const nationalId = String(e.nationalId || "");
+        const jobId = String(e.jobId || "");
+        const phone = String(e.phone || "");
+        return name.includes(q) || nationalId.includes(q) || jobId.includes(q) || phone.includes(q);
+      })
+      .slice(0, 8);
+  }, [canEmployees, employees, memberSearchQuery]);
+
+  const filteredTransactions = useMemo(() => {
+    if (periodFilter === "all") return transactions;
+    const now = new Date();
+    const currentYear = now.toISOString().slice(0, 4);
+    const currentMonth = now.toISOString().slice(0, 7);
+    const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, 1).toISOString().slice(0, 10);
+
+    return transactions.filter((tx) => {
+      const d = String(tx.date || "");
+      if (periodFilter === "year") return d.startsWith(currentYear);
+      if (periodFilter === "month") return d.startsWith(currentMonth);
+      if (periodFilter === "quarter") return d >= threeMonthsAgo;
+      return true;
+    });
+  }, [periodFilter, transactions]);
+
+  const monthBuckets = useMemo(() => buildMonthBuckets(filteredTransactions), [filteredTransactions]);
+
+  const periodFinancialTotals = useMemo(() => {
+    let income = 0;
+    let expense = 0;
+    filteredTransactions.filter(isPosted).forEach((tx) => {
+      const impact = getFinanceImpact(tx);
+      income += impact.credit;
+      expense += impact.debit;
+    });
+    return { income, expense };
+  }, [filteredTransactions]);
+
   const recentTransactions = useMemo(() => transactions.slice(0, 5), [transactions]);
-  const monthBuckets = useMemo(() => buildMonthBuckets(transactions), [transactions]);
 
   const boardMembers = useMemo(() => {
     return employees
@@ -327,7 +392,7 @@ export default function DashboardPage() {
     if (canFinance) {
       items.push(
         { key: "balance", label: "الرصيد الدفتري", value: formatMoney(balance), sub: `افتتاحي: ${formatMoney(OPENING_BALANCE)}`, icon: Wallet, tone: balance >= 0 ? "success" : "danger" },
-        { key: "out", label: "إجمالي المنصرف", value: formatMoney(totalOut), sub: `${posted.filter((tx) => tx.type !== "deposit").length} حركة`, icon: Banknote, tone: "danger" }
+        { key: "out", label: "إجمالي المنصرف", value: formatMoney(totalOut), sub: `${financialTotals.expenseCount} حركة`, icon: Banknote, tone: "danger" }
       );
     }
 
@@ -344,7 +409,7 @@ export default function DashboardPage() {
     }
 
     return items.slice(0, 5);
-  }, [balance, boardMembers.length, canActivities, canBoard, canEmployees, canFinance, employees.length, events.length, posted, totalOut]);
+  }, [balance, boardMembers.length, canActivities, canBoard, canEmployees, canFinance, employees.length, events.length, financialTotals.expenseCount, totalOut]);
 
   const quickActions = useMemo(() => {
     return [
@@ -377,17 +442,75 @@ export default function DashboardPage() {
               مرحباً {user?.displayName || "بك"}، هذه نظرة مركزة على البيانات المسموح لك بعرضها داخل المنظومة.
             </p>
           </div>
-          {quickActions.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              {quickActions.slice(0, 2).map((action) => (
+          <div className="flex flex-wrap items-center gap-2 print:hidden">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              iconStart={Printer}
+              onClick={() => window.print()}
+            >
+              طباعة اللوحة
+            </Button>
+            {quickActions.length > 0 &&
+              quickActions.slice(0, 2).map((action) => (
                 <Button key={action.to} as={Link} to={action.to} variant="primary" size="sm" iconStart={action.icon}>
                   {action.label}
                 </Button>
               ))}
-            </div>
-          )}
+          </div>
         </div>
       </section>
+
+      {canEmployees && (
+        <section className="relative rounded-xl border border-slate-200 bg-white p-3 shadow-xs dark:border-slate-700/80 dark:bg-slate-800/70 print:hidden">
+          <div className="flex items-center gap-2.5">
+            <Search size={16} className="text-slate-400 shrink-0" />
+            <input
+              type="text"
+              value={memberSearchQuery}
+              onChange={(e) => setMemberSearchQuery(e.target.value)}
+              placeholder="بحث سريع عن عضو بالاسم، الرقم الوظيفي، الرقم القومي، أو الهاتف..."
+              className="w-full bg-transparent text-xs font-bold outline-none placeholder:text-slate-400 text-slate-900 dark:text-white"
+            />
+            {memberSearchQuery && (
+              <button
+                type="button"
+                onClick={() => setMemberSearchQuery("")}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                aria-label="مسح البحث"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+          {matchingMembers.length > 0 && (
+            <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-700/60 max-h-60 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700/50">
+              {matchingMembers.map((emp) => (
+                <button
+                  key={emp.id}
+                  type="button"
+                  onClick={() => {
+                    openEmployeeModal(emp);
+                    setMemberSearchQuery("");
+                  }}
+                  className="flex w-full items-center justify-between p-2.5 text-right hover:bg-slate-50 dark:hover:bg-slate-700/50 rounded-lg transition cursor-pointer"
+                >
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{emp.name}</p>
+                    <p className="text-[10px] text-slate-500 font-semibold truncate mt-0.5">
+                      الرقم الوظيفي: {emp.jobId || "—"} · القومي: {emp.nationalId || "—"} · هاتف: {emp.phone || "—"}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-[10px] font-bold text-teal-700 bg-teal-50 dark:bg-teal-900/30 dark:text-teal-300 px-2 py-0.5 rounded border border-teal-200/60 dark:border-teal-700">
+                    {emp.membershipStatus || "عضو"}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       {errors.length > 0 && (
         <Alert
@@ -398,7 +521,7 @@ export default function DashboardPage() {
       )}
 
       {primaryKpis.length > 0 ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className={clsx("grid grid-cols-1 gap-3 sm:grid-cols-2", primaryKpis.length >= 5 ? "lg:grid-cols-3 xl:grid-cols-5" : "xl:grid-cols-4")}>
           {primaryKpis.map((kpi) => (
             <StatCard key={kpi.key} label={kpi.label} value={kpi.value} sub={kpi.sub} icon={kpi.icon} tone={kpi.tone} />
           ))}
@@ -422,22 +545,50 @@ export default function DashboardPage() {
           {canFinance && (
             <Card
               title="نظرة مالية"
-              description="تعتمد على نفس بيانات الخزينة والشيكات الحالية دون تغيير طريقة الحساب."
-              action={<Button as={Link} to="/treasury/ledger" variant="outline" size="sm" iconStart={Landmark}>كشف الحساب</Button>}
+              description={`الحركة المالية ${periodFilter === "all" ? "لجميع الفترات" : periodFilter === "year" ? "للعام الحالي" : periodFilter === "quarter" ? "لآخر 3 أشهر" : "للشهر الحالي"}.`}
+              action={
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-0.5 dark:border-slate-700 dark:bg-slate-900/60 print:hidden">
+                    {[
+                      { id: "all", label: "الكل" },
+                      { id: "year", label: "هذا العام" },
+                      { id: "quarter", label: "آخر 3 أشهر" },
+                      { id: "month", label: "هذا الشهر" },
+                    ].map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setPeriodFilter(p.id)}
+                        className={clsx(
+                          "px-2 py-1 rounded text-[10px] font-bold transition cursor-pointer",
+                          periodFilter === p.id
+                            ? "bg-teal-600 text-white shadow-xs"
+                            : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+                        )}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                  <Button as={Link} to="/treasury/ledger" variant="outline" size="sm" iconStart={Landmark} className="print:hidden">
+                    كشف الحساب
+                  </Button>
+                </div>
+              }
             >
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
                 <div>
-                  <SectionTitle icon={Activity} title="الحركة الشهرية" meta="آخر 6 أشهر بها بيانات" />
+                  <SectionTitle icon={Activity} title="الحركة الشهرية" meta="بحسب الفترة المحددة" />
                   <FinanceTrendBars buckets={monthBuckets} />
                 </div>
                 <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/40">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-semibold text-slate-500">إجمالي المقبوضات</span>
-                    <span className="num text-xs font-bold text-emerald-700">{formatMoney(totalIn)}</span>
+                    <span className="num text-xs font-bold text-emerald-700">{formatMoney(periodFinancialTotals.income)}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-semibold text-slate-500">إجمالي المنصرف</span>
-                    <span className="num text-xs font-bold text-rose-700">{formatMoney(totalOut)}</span>
+                    <span className="num text-xs font-bold text-rose-700">{formatMoney(periodFinancialTotals.expense)}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-semibold text-slate-500">تسويات مفتوحة</span>
@@ -478,7 +629,7 @@ export default function DashboardPage() {
                             {tx.notes && <p className="max-w-md truncate text-[10px] font-semibold text-slate-500">{tx.notes}</p>}
                           </td>
                           <td className="p-2 text-xs font-semibold text-slate-500">{getIssuedCheckTypeLabel(tx.type)}</td>
-                          <td className={clsx("num p-2 text-left text-xs font-bold", tx.type === "deposit" ? "text-emerald-700" : "text-rose-700")}>
+                          <td className={clsx("num p-2 text-left text-xs font-bold", isIncomeFinanceType(tx.type) ? "text-emerald-700" : "text-rose-700")}>
                             {formatMoney(Number(tx.amount || 0))}
                           </td>
                         </tr>

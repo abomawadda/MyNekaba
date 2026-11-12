@@ -171,9 +171,14 @@ service cloud.firestore {
     }
 
     match /events/{id} {
-      allow read: if isStaff() || isMember();
+      allow read: if true;
       allow create, update: if isAdmin() || isTreasurer();
       allow delete: if isAdmin();
+    }
+
+    match /site_news/{id} {
+      allow read: if resource.data.active != false || isStaff();
+      allow create, update, delete: if isAdmin();
     }
 
     match /event_bookings/{id} {

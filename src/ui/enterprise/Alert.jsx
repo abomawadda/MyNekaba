@@ -7,6 +7,7 @@ const config = {
   info: { icon: Info, className: "border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-400/30 dark:bg-sky-500/10 dark:text-sky-200" },
   warning: { icon: AlertTriangle, className: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-200" },
   error: { icon: AlertCircle, className: "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-400/30 dark:bg-rose-500/10 dark:text-rose-200" },
+  danger: { icon: AlertCircle, className: "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-400/30 dark:bg-rose-500/10 dark:text-rose-200" },
 };
 
 export default function Alert({ tone = "info", title, description, action, onDismiss, className = "" }) {
