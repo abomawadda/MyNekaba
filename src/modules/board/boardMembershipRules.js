@@ -2,7 +2,7 @@ import {
   buildBoardMemberViewsFromMemberships,
   normalizeBoardMembership,
 } from "./boardLifecycle.js";
-import { parseEmployeeDate } from "../../utils/memberBenefits.js";
+import { getCairoTodayISO, parseEmployeeDate } from "../../utils/memberBenefits.js";
 
 export const BOARD_ROLE_RANK = {
   "رئيس المجلس": 1,
@@ -84,13 +84,19 @@ const toDayString = (value = "") => {
 };
 
 export const isMembershipCoveringDate = (membership = {}, dateStr = "") => {
-  const day = toDayString(dateStr);
-  if (!day) return true;
+  const day = toDayString(dateStr) || getCairoTodayISO();
   const normalized = normalizeBoardMembership(membership);
+  if (["cancelled", "void", "disqualified"].includes(normalized.status)) return false;
+
   const from = toDayString(normalized.joinDate);
   const to = toDayString(normalized.endDate);
   if (from && day < from) return false;
   if (to && day > to) return false;
+
+  if (["ended", "inactive", "terminated"].includes(normalized.status) && !to) {
+    if (day >= getCairoTodayISO()) return false;
+  }
+
   return true;
 };
 
@@ -101,9 +107,10 @@ export const getTermMemberViews = (memberships = [], employees = [], termId = ""
 
 export const getMembersCoveringDate = (memberships = [], employees = [], termId = "", dateStr = "") => {
   const views = buildBoardMemberViewsFromMemberships(memberships, employees, { termId });
+  const targetDate = toDayString(dateStr) || getCairoTodayISO();
   return sortBoardMembersUnified(
     views.filter((view) =>
-      isMembershipCoveringDate(view.boardMembership || {}, dateStr || new Date())
+      isMembershipCoveringDate(view.boardMembership || {}, targetDate)
     )
   );
 };

@@ -189,44 +189,86 @@ export const getMembershipEndDate = (member) =>
   getRetirementDate(member) ||
   parseEmployeeDate(member?.membershipExpiry || member?.membershipEndDate || member?.unionEndDate);
 
+export const CAIRO_TIMEZONE = "Africa/Cairo";
+
+export const getCairoTodayISO = () => {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: CAIRO_TIMEZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+  } catch {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+};
+
+export const getCairoNowDate = () => {
+  const iso = getCairoTodayISO();
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
+};
+
+export const stripTime = (date) => {
+  if (!date) return null;
+  const d = date instanceof Date ? date : parseEmployeeDate(date);
+  if (!d || Number.isNaN(d.getTime())) return null;
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+};
+
 export const getDeathDate = (member) =>
   parseEmployeeDate(member?.deathDate || member?.dateOfDeath || member?.deceasedAt);
 
-export const isDeceasedMember = (member, onDate = new Date()) => {
+export const getMemberEffectiveEndDate = (member = {}, membership = null) => {
+  const dates = [
+    getDeathDate(member),
+    getMembershipEndDate(member),
+    parseEmployeeDate(member?.resignationDate || member?.resignedAt),
+    parseEmployeeDate(membership?.endDate),
+  ].filter(Boolean);
+
+  if (dates.length === 0) return null;
+  return dates.reduce((min, d) => (d.getTime() < min.getTime() ? d : min));
+};
+
+export const isDeceasedMember = (member, onDate = getCairoNowDate()) => {
   const state = String(member?.memberState || "").trim();
   const deathDate = getDeathDate(member);
-  const effectiveDate = stripTime(parseEmployeeDate(onDate) || new Date(onDate));
+  const effectiveDate = stripTime(parseEmployeeDate(onDate) || getCairoNowDate());
 
-  if (deathDate) {
+  if (deathDate && effectiveDate) {
     return stripTime(deathDate).getTime() <= effectiveDate.getTime();
   }
 
   return state === "وفاة";
 };
 
-const stripTime = (date) =>
-  new Date(date.getFullYear(), date.getMonth(), date.getDate());
-
-export const isRetiredMember = (member, onDate = new Date()) => {
+export const isRetiredMember = (member, onDate = getCairoNowDate()) => {
   const state = String(member?.memberState || "").trim();
   const retirementDate = getRetirementDate(member);
-  const effectiveDate = stripTime(parseEmployeeDate(onDate) || new Date(onDate));
+  const effectiveDate = stripTime(parseEmployeeDate(onDate) || getCairoNowDate());
 
-  if (retirementDate) {
+  if (retirementDate && effectiveDate) {
     return stripTime(retirementDate).getTime() <= effectiveDate.getTime();
   }
 
   return state === "معاش";
 };
 
-export const isMembershipEnded = (member, onDate = new Date()) => {
+export const isMembershipEnded = (member, onDate = getCairoNowDate()) => {
   const membershipEndDate = getMembershipEndDate(member);
   if (!membershipEndDate) return false;
-  const effectiveDate = stripTime(parseEmployeeDate(onDate) || new Date(onDate));
+  const effectiveDate = stripTime(parseEmployeeDate(onDate) || getCairoNowDate());
+  if (!effectiveDate) return false;
   return stripTime(membershipEndDate).getTime() <= effectiveDate.getTime();
 };
 
-export const getEffectiveMemberState = (member, onDate = new Date()) => {
+export const getEffectiveMemberState = (member, onDate = getCairoNowDate()) => {
   const state = String(member?.memberState || "").trim();
 
   if (isDeceasedMember(member, onDate)) return "وفاة";
@@ -237,13 +279,13 @@ export const getEffectiveMemberState = (member, onDate = new Date()) => {
   return state || "نشط";
 };
 
-export const isActiveMember = (member, onDate = new Date()) =>
+export const isActiveMember = (member, onDate = getCairoNowDate()) =>
   !["وفاة", "استقالة", "موقوف", "معاش"].includes(getEffectiveMemberState(member, onDate));
 
-export const isEligibleForBenefit = (member, onDate = new Date()) =>
+export const isEligibleForBenefit = (member, onDate = getCairoNowDate()) =>
   !isIndependentMember(member) && !isRetiredMember(member, onDate) && !isDeceasedMember(member, onDate);
 
-export const isBoardMemberEligible = (member, onDate = new Date()) =>
+export const isBoardMemberEligible = (member, onDate = getCairoNowDate()) =>
   isBoardMember(member) && isActiveMember(member, onDate) && !isIndependentMember(member);
 
 export const getAutomaticMemberLifecycleUpdates = (member, onDate = new Date()) => {

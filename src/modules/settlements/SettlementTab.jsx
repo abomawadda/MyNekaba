@@ -16,8 +16,11 @@ import { getPrintBrandHeader, getPrintBrandStyles } from "../../utils/branding";
 import { logAuditEvent } from "../../utils/auditLog";
 import { Alert, LoadingState, PageHeader, getModuleIcon } from "../../ui/enterprise";
 import {
+  getCairoNowDate,
+  getCairoTodayISO,
   getDeathDate,
   getEffectiveMemberState,
+  getMemberEffectiveEndDate,
   getMembershipEndDate,
   isBoardMember,
   parseEmployeeDate,
@@ -54,6 +57,7 @@ import {
   getActiveBoardTerm,
   getEligibleBoardMemberViews,
   getMeetingAttendanceRecords,
+  isBoardMembershipActiveOnDate,
 } from "../board/boardLifecycle";
 import {
   sortBoardMembersUnified,
@@ -111,7 +115,7 @@ const ALLOWANCE_TYPE_LABELS = {
 };
 const BOARD_TERM_START = "2022/06/01";
 const BOARD_TERM_END = "2027/05/31";
-const getTodayISO = () => new Date().toISOString().split("T")[0];
+const getTodayISO = () => getCairoTodayISO();
 const POSTED_SETTLEMENT_STATES = new Set(["posted", "approved", "paid"]);
 const ARABIC_MONTHS = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
 const getMonthValue = (dateString = "") => (dateString || "").slice(5, 7);
@@ -219,20 +223,13 @@ const normalizeDateOnly = (value) => {
 };
 
 const getBoardSettlementEndDate = (member) => {
-  const membershipEndDate = getMembershipEndDate(member);
-  const deathDate = getDeathDate(member);
-
-  if (membershipEndDate && deathDate) {
-    return membershipEndDate.getTime() <= deathDate.getTime() ? membershipEndDate : deathDate;
-  }
-
-  return membershipEndDate || deathDate || null;
+  return getMemberEffectiveEndDate(member);
 };
 
 const isBoardMemberEligibleForSettlementDate = (member, onDate) => {
   if (!isBoardMember(member)) return false;
 
-  const referenceDate = normalizeDateOnly(onDate) || normalizeDateOnly(new Date());
+  const referenceDate = normalizeDateOnly(onDate) || getCairoNowDate();
   const boardEndDate = normalizeDateOnly(getBoardSettlementEndDate(member));
 
   if (!boardEndDate) return true;
@@ -1288,7 +1285,7 @@ export default function SettlementTab() {
   const allowanceReferenceDate = useMemo(() => {
     if (isMeetingAllowanceCategory(expCat) && selectedMeeting?.date) return selectedMeeting.date;
     if (isTravelAllowanceCategory(expCat)) return expDate || getTodayISO();
-    return getTodayISO();
+    return expDate || getTodayISO();
   }, [expCat, expDate, selectedMeeting]);
 
   const historicalMeetingMembers = useMemo(() => {
@@ -1345,14 +1342,18 @@ export default function SettlementTab() {
       termId ? { termId } : {}
     );
 
-    const merged = [...termViews];
+    const eligibleViews = termViews.filter((view) =>
+      isBoardMembershipActiveOnDate(view.boardMembership || view, allowanceReferenceDate)
+    );
+
+    const merged = eligibleViews.length > 0 ? eligibleViews : activeBoardMembers;
     const uniqueMembers = new Map();
     merged.forEach((member) => {
       const memberId = toEntityId(member?.id);
       if (memberId && !uniqueMembers.has(memberId)) uniqueMembers.set(memberId, { ...member, id: memberId });
     });
     return sortBoardMembersUnified(Array.from(uniqueMembers.values()));
-  }, [activeBoardMembers, effectiveBoardMemberships, employees, expCat, historicalMeetingMembers, selectedMeeting?.termId, activeBoardTerm?.id]);
+  }, [activeBoardMembers, effectiveBoardMemberships, employees, expCat, historicalMeetingMembers, selectedMeeting?.termId, activeBoardTerm?.id, allowanceReferenceDate]);
 
   const selectableBoardMembersMap = useMemo(
     () => new Map(selectableBoardMembers.map((member) => [toEntityId(member.id), member])),

@@ -10,12 +10,14 @@ import MemberSearchSelect from "./MemberSearchSelect";
 import {
   BOARD_ALLOWANCE_CATEGORIES,
   NON_ALLOWANCE_BENEFIT_TYPES,
+  getCairoTodayISO,
 } from "../../utils/memberBenefits";
 import {
   normalizeBoardBenefit,
   normalizeBoardMembership,
   sortBoardTerms,
 } from "./boardLifecycle";
+import { isMembershipCoveringDate } from "./boardMembershipRules";
 import { saveBoardBenefit } from "./boardElectionService";
 
 const inputCls = "w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3.5 py-2.5 text-sm font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent transition-all";
@@ -172,9 +174,16 @@ export default function BoardBenefitsTab({
     return { rows, total, info };
   }, [selectedMemberId, allRows, memberTotals]);
 
+  const eligibleBenefitMembers = useMemo(() => {
+    const targetDate = benefitForm.benefitDate || getCairoTodayISO();
+    return termMemberships
+      .filter((m) => isMembershipCoveringDate(m, targetDate))
+      .map((m) => ({ id: m.memberId, name: m.memberName, sub: m.role || "" }));
+  }, [termMemberships, benefitForm.benefitDate]);
+
   const openAddBenefit = () => {
     if (!canEdit || !selectedTerm?.id) return;
-    setBenefitForm({ memberId: "", benefitType: "", amount: "", benefitDate: "", description: "", checkNum: "" });
+    setBenefitForm({ memberId: "", benefitType: "", amount: "", benefitDate: getCairoTodayISO(), description: "", checkNum: "" });
     setShowBenefitModal(true);
   };
 
@@ -229,7 +238,7 @@ export default function BoardBenefitsTab({
                 <MemberSearchSelect
                   value={benefitForm.memberId}
                   onChange={(memberId) => setBenefitForm((v) => ({ ...v, memberId }))}
-                  options={termMemberships.map((m) => ({ id: m.memberId, name: m.memberName, sub: m.role || "" }))}
+                  options={eligibleBenefitMembers}
                 /></div>
               <div className="flex flex-col gap-1.5"><label className="text-[11px] font-black text-slate-500">نوع الميزة</label>
                 <select className={inputCls} value={benefitForm.benefitType} onChange={(e) => setBenefitForm((v) => ({ ...v, benefitType: e.target.value }))}>

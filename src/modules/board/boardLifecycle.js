@@ -1,7 +1,10 @@
 import {
   formatEmployeeDate,
   getBoardRoleLabel,
+  getCairoNowDate,
+  getCairoTodayISO,
   getEffectiveMemberState,
+  getMemberEffectiveEndDate,
   getMembershipEndDate,
   getRetirementDate,
   isBoardMember,
@@ -124,16 +127,22 @@ export const normalizeBoardMembership = (membership = {}) => ({
   snapshot: membership.snapshot || {},
 });
 
-export const isBoardMembershipActiveOnDate = (membership = {}, onDate = new Date()) => {
+export const isBoardMembershipActiveOnDate = (membership = {}, onDate = getCairoNowDate()) => {
   const normalized = normalizeBoardMembership(membership);
-  if (normalized.status !== "active") return false;
+  if (["cancelled", "void", "disqualified"].includes(normalized.status)) return false;
 
-  const referenceDate = toDateValue(onDate) || new Date();
+  const referenceDate = toDateValue(onDate) || getCairoNowDate();
   const joinDate = toDateValue(normalized.joinDate);
   const endDate = toDateValue(normalized.endDate);
 
   if (joinDate && joinDate.getTime() > referenceDate.getTime()) return false;
   if (endDate && endDate.getTime() < referenceDate.getTime()) return false;
+
+  // If marked ended/inactive but no endDate is set, cannot be active on current/future dates
+  if (["ended", "inactive", "terminated"].includes(normalized.status) && !endDate) {
+    if (referenceDate.getTime() >= getCairoNowDate().getTime()) return false;
+  }
+
   return true;
 };
 
@@ -143,7 +152,8 @@ export const buildLegacyBoardMemberships = (employees = [], term = null) =>
     .map((employee, index) => {
       const retirementDate = getRetirementDate(employee);
       const membershipEndDate = getMembershipEndDate(employee);
-      const resolvedEndDate = retirementDate || membershipEndDate;
+      const effectiveEndDateVal = getMemberEffectiveEndDate(employee);
+      const resolvedEndDate = effectiveEndDateVal || retirementDate || membershipEndDate;
       const joinDate = term?.startDate || "";
       const endDate = formatEmployeeDate(resolvedEndDate)
         ? toIsoDate(resolvedEndDate)
@@ -159,7 +169,7 @@ export const buildLegacyBoardMemberships = (employees = [], term = null) =>
         role,
         joinDate,
         endDate,
-        status: endDate && getSortDate(endDate) < getSortDate(new Date()) ? "ended" : "active",
+        status: endDate && getSortDate(endDate) < getCairoNowDate().getTime() ? "ended" : "active",
         joinMethod: "legacy",
         snapshot: buildBoardMembershipSnapshot(employee),
       });
@@ -169,22 +179,34 @@ export const buildBoardMemberView = (membership = {}, member = {}) => {
   const normalizedMembership = normalizeBoardMembership(membership);
   const snapshot = normalizedMembership.snapshot || {};
 
+  const effectiveEnd = getMemberEffectiveEndDate(member, normalizedMembership);
+  const effectiveEndDate = effectiveEnd ? toIsoDate(effectiveEnd) : normalizedMembership.endDate;
+
+  const effectiveMembership = {
+    ...normalizedMembership,
+    endDate: effectiveEndDate,
+    status:
+      effectiveEndDate && getSortDate(effectiveEndDate) < getCairoNowDate().getTime()
+        ? "ended"
+        : normalizedMembership.status,
+  };
+
   return {
     ...snapshot,
     ...member,
-    id: normalizeText(member.id || normalizedMembership.memberId),
-    name: normalizeText(member.name || normalizedMembership.memberName || snapshot.name),
-    jobId: normalizeText(member.jobId || normalizedMembership.memberJobId || snapshot.jobId),
+    id: normalizeText(member.id || effectiveMembership.memberId),
+    name: normalizeText(member.name || effectiveMembership.memberName || snapshot.name),
+    jobId: normalizeText(member.jobId || effectiveMembership.memberJobId || snapshot.jobId),
     workplace: normalizeText(member.workplace || snapshot.workplace),
     jobTitle: normalizeText(member.jobTitle || snapshot.jobTitle),
     specialization: normalizeText(member.specialization || snapshot.specialization),
     phone: normalizeText(member.phone || member.mobile || snapshot.phone),
-    boardRoleTitle: normalizeText(normalizedMembership.role || member.boardRoleTitle || getBoardRoleLabel(member)),
-    membershipStatus: normalizeText(normalizedMembership.role || member.membershipStatus || snapshot.membershipStatus),
+    boardRoleTitle: normalizeText(effectiveMembership.role || member.boardRoleTitle || getBoardRoleLabel(member)),
+    membershipStatus: normalizeText(effectiveMembership.role || member.membershipStatus || snapshot.membershipStatus),
     memberState: normalizeText(member.memberState || snapshot.memberState),
-    boardMembership: normalizedMembership,
-    boardMembershipId: normalizedMembership.id,
-    boardTermId: normalizedMembership.termId,
+    boardMembership: effectiveMembership,
+    boardMembershipId: effectiveMembership.id,
+    boardTermId: effectiveMembership.termId,
   };
 };
 

@@ -14,6 +14,8 @@ import {
   BOARD_MEMBERSHIP_ROLES,
   getAutomaticMemberLifecycleUpdates,
   getBoardRoleLabel,
+  getCairoNowDate,
+  getCairoTodayISO,
   getEffectiveMemberState,
   getRetirementDate,
   isActiveMember,
@@ -227,7 +229,7 @@ const getEligibleBoardMembersForDate = ({
   allEmployees = [],
   members = [],
   termId = "",
-  onDate = new Date(),
+  onDate = getCairoNowDate(),
 } = {}) => {
   const membershipMembers = getEligibleBoardMemberViews({
     memberships,
@@ -956,14 +958,14 @@ function MeetingDetail({ meeting, members, allEmployees, memberships, activeTerm
   const meetingDate = meeting?.date || "";
   const resolvedTermId = meeting?.termId || activeTerm?.id || "";
   const eligibleMembers = useMemo(() => {
-    const covering = getMembersCoveringDate(memberships, allEmployees, resolvedTermId, meetingDate || new Date());
+    const covering = getMembersCoveringDate(memberships, allEmployees, resolvedTermId, meetingDate || getCairoTodayISO());
     if (covering.length > 0) return covering;
     const membershipMembers = getEligibleBoardMembersForDate({
       memberships,
       allEmployees,
       members,
       termId: resolvedTermId,
-      onDate: meetingDate || new Date(),
+      onDate: meetingDate || getCairoNowDate(),
     });
     return sortBoardMembers(membershipMembers || []);
   }, [allEmployees, meetingDate, members, memberships, resolvedTermId]);
@@ -1974,6 +1976,12 @@ function ReportsTab({ members, meetings, memberships, allEmployees, settlementTr
     }, 0);
     totalAttendancePct = totalEligible > 0 ? Math.round((totalPresent / totalEligible) * 100) : 0;
   }
+  const quorumHeldCount = heldMeetings.filter((m) => {
+    const present = getMeetingAttendeeIds(m).length;
+    const target = Math.ceil((rosterMembers.length || TARGET_BOARD_SIZE) / 2);
+    return present >= target;
+  }).length;
+  const quorumPct = heldMeetings.length ? Math.round((quorumHeldCount / heldMeetings.length) * 100) : 0;
 
   return (
     <div className="animate-in fade-in duration-500 space-y-5">
@@ -2061,7 +2069,7 @@ function ReportsTab({ members, meetings, memberships, allEmployees, settlementTr
           <div className="space-y-3">
             {[
               { label: "متوسط القرارات لكل اجتماع", value: heldMeetings.length ? (meetings.reduce((s, m) => s + (m.decisions?.length || 0), 0) / heldMeetings.length).toFixed(1) : 0, color: "text-blue-500", icon: "📋" },
-              { label: "نسبة تحقيق النصاب القانوني", value: "100%", color: "text-green-500", icon: "✅" },
+              { label: "نسبة تحقيق النصاب القانوني", value: `${quorumPct}%`, color: quorumPct >= 75 ? "text-green-500" : "text-amber-500", icon: "✅" },
               { label: "الأعضاء النشطون", value: `${members.filter((member) => isActiveMember(member)).length}/${members.length}`, color: "text-amber-500", icon: "👤" },
               { label: "إجمالي البدلات المصروفة", value: formatMoney(settlementAllowanceTotal), color: "text-violet-500", icon: "💰" },
             ].map((kpi, i) => (
@@ -2193,8 +2201,8 @@ export default function BoardDashboard() {
   const currentBoardMembers = useMemo(
     () => boardMembers.filter((employee) =>
       employee.boardMembership
-        ? isBoardMembershipActiveOnDate(employee.boardMembership)
-        : isBoardMemberEligible(employee)
+        ? isBoardMembershipActiveOnDate(employee.boardMembership, getCairoNowDate())
+        : isBoardMemberEligible(employee, getCairoNowDate())
     ),
     [boardMembers]
   );

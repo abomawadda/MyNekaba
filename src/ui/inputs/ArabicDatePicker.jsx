@@ -5,11 +5,22 @@ import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import clsx from "clsx";
 import { useT } from "../../app/providers/ThemeProvider";
 
+import { getCairoNowDate, getCairoTodayISO } from "../../utils/memberBenefits";
+
 const MONTHS_AR = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
 const WEEK_DAYS_AR = ["سبت", "أحد", "اثنين", "ثلاثاء", "أربعاء", "خميس", "جمعة"];
 
 const toDateOnly = (value) => {
   if (!value) return null;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+  }
+  const str = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+    const [y, m, d] = str.slice(0, 10).split("-").map(Number);
+    return new Date(y, m - 1, d);
+  }
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return null;
   d.setHours(0, 0, 0, 0);
@@ -79,11 +90,7 @@ export default function ArabicDatePicker({
   const T = useT();
 
   const selectedDate = useMemo(() => toDateOnly(value), [value]);
-  const today = useMemo(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
-  }, []);
+  const today = useMemo(() => getCairoNowDate(), []);
 
   const initialDate = selectedDate || today;
 
@@ -96,9 +103,9 @@ export default function ArabicDatePicker({
   const popupRef = useRef(null);
 
   const years = useMemo(() => {
-    const currentYear = new Date().getFullYear();
+    const currentYear = getCairoNowDate().getFullYear();
     const arr = [];
-    for (let y = currentYear + 5; y >= currentYear - 20; y--) arr.push(y);
+    for (let y = currentYear + 5; y >= currentYear - 35; y--) arr.push(y);
     return arr;
   }, []);
 
